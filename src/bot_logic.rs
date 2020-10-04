@@ -15,6 +15,8 @@ use string_tools::*;
 use web_sys::window;
 use yew::prelude::*;
 
+const WELL_KNOWN_METHODS: [&str; 4] = ["facebook_visit", "twitchtv_follow", "instagram_visit_profile", "youtube_visit_channel"];
+
 fn get_fraud() -> String {
     js_sys::eval("fraudService.hashedFraud()")
         .unwrap()
@@ -122,35 +124,72 @@ pub async fn run(
     log!("contestant: {:#?}", init_contestant);
     let mut contestant = init_contestant.contestant;
 
-    let mut dbg: HashMap<&String, Value> = HashMap::new();
-    let mut frm: HashMap<&String, Value> = HashMap::new();
-    for idx in 0..giveaway.entry_methods.len() {
-        let entry = &giveaway.entry_methods[idx];
-        if entry.requires_details {
-            match entry.provider.as_str() {
-                "twitter" => {
-                    frm.insert(
-                        &entry.id,
-                        json! {{
-                            "twitter_username": settings.borrow().twitter_username,
-                        }},
-                    );
-                }
-                p => println!("unknown provider {}", p),
-            }
+    let twitter_value = json! {{
+        "twitter_username": settings.borrow().twitter_username,
+    }};
+
+    let current: RefCell<f32> = RefCell::new(0.0);
+    let len = giveaway.entry_methods.len() as f32;
+
+    let next = || {
+        use std::ops::AddAssign;
+        current.borrow_mut().add_assign(1.0);
+        link.send_message(Msg::ProgressChange(
+            ((100.0 / len) * *current.borrow()).floor() as usize
+        ));
+    };
+
+    let err = |e: String| {
+        use std::ops::AddAssign;
+        link.send_message(Msg::LogMessage(Message::Error(
+            e
+        )));
+        current.borrow_mut().add_assign(1.0);
+        link.send_message(Msg::ProgressChange(
+            ((100.0 / len) * *current.borrow()).floor() as usize
+        ));
+    };
+
+    let mut made_requests: Vec<&String> = Vec::new();
+
+    let mut entry_methods = Vec::new();
+    for entry in &giveaway.entry_methods {
+        if entry.mandatory {
+            entry_methods.insert(0, entry);
+        } else {
+            entry_methods.push(entry);
         }
     }
 
-    let mut current: f32 = 0.0;
-    let len = giveaway.entry_methods.len() as f32;
-    for idx in 0..giveaway.entry_methods.len() {
-        let entry = &giveaway.entry_methods[idx];
+    for idx in 0..entry_methods.len() {
+        let entry = &entry_methods[idx];
 
         if contestant.entered.contains_key(&entry.id) {
             log!("Already entered, skipping");
+            next();
             continue;
         }
 
+        let mut dbg: HashMap<&String, Value> = HashMap::new();
+        for made_request in &made_requests {
+            dbg.insert(made_request, Value::Null);
+        }
+        let mut frm = dbg.clone();
+        for idx in 0..giveaway.entry_methods.len() {
+            let entry = &giveaway.entry_methods[idx];
+            if entry.requires_details {
+                match entry.provider.as_str() {
+                    "twitter" => {
+                        frm.insert(
+                            &entry.id, twitter_value.clone(),
+                        );
+                    },
+                    _ => (),
+                }
+            }
+        }
+
+        let mut details = None;
         match entry.entry_type.as_str() {
             "twitter_follow" => if settings.borrow().auto_follow_twitter {
                 let username = match &entry.config1 {
@@ -159,6 +198,7 @@ pub async fn run(
                         link.send_message(Msg::LogMessage(Message::Error(
                             "Invalid gleam.io entry".to_string(),
                         )));
+                        next();
                         continue;
                     }
                 };
@@ -170,14 +210,18 @@ pub async fn run(
                         "Failed to open a new window: {:?}",
                         e
                     ))));
+                    next();
                     continue;
                 } else {
                     sleep(Duration::from_secs(15)).await;
                 }
+
+                details = Some(twitter_value.clone());
             } else {
                 link.send_message(Msg::LogMessage(Message::Info(
-                    "Skipped twitter follow in accordance to your settings. Considering enabling auto-follow to get more entries.".to_string()
+                    "Skipped twitter follow in accordance to your settings. Consider enabling auto-follow to get more entries.".to_string()
                 )));
+                next();
                 continue;
             },
             "twitter_retweet" => if settings.borrow().auto_retweet {
@@ -189,16 +233,19 @@ pub async fn run(
                                 "Failed to open a new window: {:?}",
                                 e
                             ))));
+                            next();
                             continue;
                         } else {
                             sleep(Duration::from_secs(15)).await;
+                            details = Some(twitter_value.clone());
                         }
                     }
                 }
             } else {
                 link.send_message(Msg::LogMessage(Message::Info(
-                    "Skipped retweet in accordance to your settings. Considering enabling auto-retweet to get more entries.".to_string()
+                    "Skipped retweet in accordance to your settings. Consider enabling auto-retweet to get more entries.".to_string()
                 )));
+                next();
                 continue;
             }
             "twitter_tweet" => if settings.borrow().auto_tweet {
@@ -209,23 +256,73 @@ pub async fn run(
                             "Failed to open a new window: {:?}",
                             e
                         ))));
+                        next();
                         continue;
                     } else {
                         sleep(Duration::from_secs(15)).await;
+                        details = Some(twitter_value.clone());
                     }
                 }
             } else {
                 link.send_message(Msg::LogMessage(Message::Info(
-                    "Skipped tweet in accordance to your settings. Considering enabling auto-tweet to get more entries.".to_string()
+                    "Skipped tweet in accordance to your settings. Consider enabling auto-tweet to get more entries.".to_string()
                 )));
+                next();
                 continue;
             }
-            entry_type => {
+            "custom_action" => {
+                match entry.template.as_str() {
+                    "choose_option" => {
+                        let answers: Vec<&str> = match &entry.config6 {
+                            Some(entries) => entries.split("\r\n").collect(),
+                            None => {
+                                err("A custom_action with the choose_option template is expected to store answers in config6.".to_string());
+                                continue;
+                            }
+                        };
+
+                        if entry.config2 != Some("unique".to_string()) {
+                            err(format!("Unsupported parameter config2={:?} in a custom_action with the choose_option template.", entry.config2));
+                            continue;
+                        }
+
+                        let answer = match answers.get(0) {
+                            Some(answer) => answer,
+                            None => {
+                                err("The custom_action method with the choose_option template has 0 answer.".to_string());
+                                continue;
+                            }
+                        };
+
+                        details = Some(Value::String(answer.to_string()));
+                    }
+                    "visit" => {
+                        match entry.workflow.as_deref() {
+                            Some("VisitQuestion") => {
+                                details = Some(Value::String("Îmi pare rău, nu înțeleg ce ar trebui să scriu aici.".to_string()));
+                            }
+                            Some("") => {
+                                details = Some(Value::Null);
+                            }
+                            workflow => {
+                                err(format!("custom_action with template visit has an unknown workflow: {:?}", workflow));
+                                continue;
+                            }
+                        }
+                    },
+                    "" => {
+                        details = Some(Value::String("Done".to_string()));
+                    }
+                    _ => (),
+                }
+            }
+            entry_type if !WELL_KNOWN_METHODS.contains(&entry_type) => {
                 if settings.borrow().ban_unknown_methods {
                     link.send_message(Msg::LogMessage(Message::Warning(format!(
                         "Encountered an unknown entry type: {:?}. This entry method has been skipped. You can enable auto-entering for unknown entry methods in the settings, but it may not work properly.",
                         entry_type
                     ))));
+                    next();
                     continue;
                 } else {
                     link.send_message(Msg::LogMessage(Message::Warning(format!(
@@ -234,11 +331,20 @@ pub async fn run(
                     ))));
                 }
             },
+            _ => details = Some(Value::String("V".to_string())),
         }
+
+        if let Some(details) = details.as_ref() {
+            dbg.insert(&entry.id, details.clone());
+            if details != &Value::String("Done".to_string()) {
+                frm.insert(&entry.id, details.clone());
+            }
+        }
+        made_requests.push(&entry.id);
 
         let body = json! {{
             "dbg": dbg,
-            "details": "V",
+            "details": details,
             "emid": entry.id,
             "f": fpr,
             "frm": frm,
@@ -264,6 +370,7 @@ pub async fn run(
                     "Unexpected response to HTTP request: {:?}",
                     e
                 ))));
+                next();
                 continue;
             }
         };
@@ -279,13 +386,13 @@ pub async fn run(
                             campaign_key: giveaway.campaign.key.clone(),
                             contestant: StoredContestant {
                                 competition_subscription: None,
-                                date_of_birth: contestant.stored_dob.clone(),
+                                date_of_birth: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
                                 email: contestant.email.clone(),
                                 firstname: get_all_before(&contestant.name, " ").to_string(),
                                 lastname: get_all_after(&contestant.name, " ").to_string(),
                                 name: contestant.name.clone(),
                                 send_confirmation: false,
-                                stored_dob: contestant.stored_dob.clone(),
+                                stored_dob: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
                             },
                         }),
                         HashMap::new(),
@@ -307,7 +414,8 @@ pub async fn run(
                     ))))
                 }
                 error => link.send_message(Msg::LogMessage(Message::Error(format!(
-                    "An unknown error occured while trying get entries: {:?}",
+                    "An unknown error occured while trying get entries with the method {:?}: {:?}",
+                    entry.entry_type,
                     error
                 )))),
             },
@@ -336,12 +444,8 @@ pub async fn run(
         }
         dbg.insert(&entry.id, json! {null});
 
-        current += 1.0;
-        link.send_message(Msg::ProgressChange(
-            ((100.0 / len) * current).floor() as usize
-        ));
-
-        sleep(Duration::from_secs(5)).await;
+        next();
+        sleep(Duration::from_secs(7)).await;
     }
 
     link.send_message(Msg::Done);
