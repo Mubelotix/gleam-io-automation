@@ -8,6 +8,8 @@ mod bot_logic;
 mod checkbox;
 mod messages;
 mod yew_app;
+mod request;
+mod format;
 use yew::prelude::App;
 use yew_app::*;
 

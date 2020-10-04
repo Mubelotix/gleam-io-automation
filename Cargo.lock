@@ -181,6 +181,8 @@ version = "0.2.3"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
+ "serde",
+ "serde_json",
  "string-tools",
  "wasm-bindgen",
  "wasm-bindgen-futures",
