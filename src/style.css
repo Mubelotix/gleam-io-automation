@@ -61,9 +61,9 @@
 }
 
 .info_message {
-    color: black;
-    background-color: #f5f5fe;
-    border: 1px solid #3689C5;
+    color: #004085;
+    background-color: #cce5ff;
+    border: 1px solid #b8daff;
     padding: .5rem;
     border-radius: 5px;
     white-space: pre-line;

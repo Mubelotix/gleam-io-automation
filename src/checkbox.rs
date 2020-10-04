@@ -2,7 +2,7 @@ use yew::prelude::*;
 
 pub struct Checkbox<T: Clone + Default + 'static> {
     link: ComponentLink<Self>,
-    callback: Callback<(bool, T)>,
+    callback: Callback<(T, bool)>,
     checked: bool,
     label: String,
     id: T,
@@ -30,7 +30,7 @@ impl<T: Clone + Default> Component for Checkbox<T> {
 
     fn update(&mut self, _: ()) -> bool {
         self.checked = !self.checked;
-        self.callback.emit((self.checked, self.id.clone()));
+        self.callback.emit((self.id.clone(), self.checked));
 
         true
     }
@@ -66,16 +66,19 @@ pub struct CheckboxProp<T: Clone + Default> {
     #[prop_or(false)]
     pub checked: bool,
     #[prop_or_default]
-    pub onchange: Callback<(bool, T)>,
+    pub onchange: Callback<(T, bool)>,
 }
 
 #[derive(Clone)]
 pub enum CheckboxId {
-    Twitter,
+    BanUnknownMethods,
+    TwitterFollow,
+    TwitterTweet,
+    TwitterRetweet,
 }
 
 impl Default for CheckboxId {
     fn default() -> CheckboxId {
-        CheckboxId::Twitter
+        CheckboxId::BanUnknownMethods
     }
 }

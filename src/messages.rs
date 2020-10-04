@@ -24,7 +24,7 @@ impl<T: std::fmt::Display> Message<T> {
                 <div><div class="stat_message">{message}</div><br/></div>
             },
             Message::Info(message) => html! {
-                <div><div class="info_message"><b>{"Did you know? "}</b>{message}</div><br/></div>
+                <div><div class="info_message"><b>{"Information: "}</b>{message}</div><br/></div>
             },
             Message::Other(message) => html! {
                 <div><div class="unknown_message">{message}</div><br/></div>
@@ -33,14 +33,15 @@ impl<T: std::fmt::Display> Message<T> {
                 <div><div class="danger_message"><b>{"DANGER: "}</b>{message}</div><br/></div>
             },
             Message::Error(message) => html! {
-                <div><div class="danger_message"><b>{"ERROR: "}</b>{message}</div><br/></div>
+                <div>
+                    <div class="danger_message">
+                        <b>{"ERROR: "}</b>
+                        {message}<br/>
+                        <b>{"HELP: "}</b>
+                        {"The bot encountered an error. This error can be fixed, but I need information. Could you write a mail at "}<a href="mailto:mubelotix@gmail.com">{"mubelotix@gmail.com"}</a>{" or open an issue on "}<a href="https://github.com/Mubelotix/gleam.io-bot-extension/">{"the Github repository"}</a>{"? Please include the error message and the URL of the giveaway. Thank you very much. The dev"}
+                    </div><br/>
+                </div>
             },
         }
-    }
-}
-
-impl<U: std::fmt::Debug> std::convert::From<(U, &'static str, u32)> for Message<String> {
-    fn from((error, file, line): (U, &'static str, u32)) -> Self {
-        Message::Error(format!("Whoops, the bot panicked at {:?}, {}:{}.\nPlease report this issue by writting an email at mubelotix@gmail.com or by opening an issue on Github (https://github.com/Mubelotix/gleam.io-bot-extension). Thank you very much for your patience.", error, file, line))
     }
 }

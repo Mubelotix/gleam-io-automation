@@ -167,7 +167,7 @@ pub struct Contestant {
     pub competition_subscription: Option<bool>,
     pub completed_details: bool,
     pub email: String,
-    pub entered: Value,
+    pub entered: HashMap<String, Vec<Value>>,
     pub id: usize,
     pub name: String,
     pub share_key: String,

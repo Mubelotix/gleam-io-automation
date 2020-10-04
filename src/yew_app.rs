@@ -4,7 +4,7 @@ use crate::{
 };
 use crate::checkbox::*;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
 use wasm_bindgen_futures::*;
 use yew::prelude::*;
 
@@ -16,7 +16,7 @@ pub enum Tab {
 
 pub struct Model {
     link: Rc<ComponentLink<Self>>,
-    settings: Arc<Mutex<Settings>>,
+    settings: Rc<RefCell<Settings>>,
     tab: Tab,
     progress: usize,
     progress_state: BotState,
@@ -27,6 +27,7 @@ pub enum Msg {
     Done,
     ProgressChange(usize),
     SettingsUpdate(&'static str, String),
+    CheckboxChange(CheckboxId, bool),
     ChangeTab(Tab),
     LogMessage(Message<String>),
     Launch,
@@ -44,7 +45,7 @@ impl Component for Model {
     type Properties = ();
     fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
         let link = Rc::new(link);
-        let settings = Arc::new(Mutex::new(Settings::load()));
+        let settings = Rc::new(RefCell::new(Settings::load()));
 
         Self {
             link,
@@ -60,16 +61,11 @@ impl Component for Model {
         match msg {
             Msg::Done => self.progress_state = BotState::Ended,
             Msg::SettingsUpdate(name, value) => {
-                let mut settings = match self.settings.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-
                 match name {
-                    "twitter_username" => settings.twitter_username = value,
+                    "twitter_username" => self.settings.borrow_mut().twitter_username = value,
                     name => panic!("No field with the name {}", name),
                 }
-                settings.save();
+                self.settings.borrow().save();
             }
             Msg::ChangeTab(tab) => {
                 self.tab = tab;
@@ -77,10 +73,19 @@ impl Component for Model {
             Msg::ProgressChange(p) => {
                 self.progress = p;
             }
+            Msg::CheckboxChange(name, value) => {
+                match name {
+                    CheckboxId::BanUnknownMethods => self.settings.borrow_mut().ban_unknown_methods = value,
+                    CheckboxId::TwitterFollow => self.settings.borrow_mut().auto_follow_twitter = value,
+                    CheckboxId::TwitterRetweet => self.settings.borrow_mut().auto_retweet = value,
+                    CheckboxId::TwitterTweet => self.settings.borrow_mut().auto_tweet = value,
+                }
+                self.settings.borrow().save();
+            }
             Msg::Launch => {
                 if self.progress_state == BotState::Waiting {
                     let link2 = Rc::clone(&self.link);
-                    let settings2 = Arc::clone(&self.settings);
+                    let settings2 = Rc::clone(&self.settings);
                     self.progress = 0;
                     self.progress_state = BotState::Running;
                     spawn_local(async move {
@@ -103,11 +108,6 @@ impl Component for Model {
     }
 
     fn view(&self) -> Html {
-        let settings = match self.settings.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-
         match self.tab {
             Tab::Main => {
                 html! {
@@ -140,19 +140,19 @@ impl Component for Model {
                 }
             }
             Tab::Settings => {
+                let check_clbk = self.link.callback(|(e, t)| Msg::CheckboxChange(e, t));
+                let settings = self.settings.borrow();
                 html! {
                     <div>
                         <label>
                             {"Your Twitter username: "}
-                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="jack" oninput=self.link.callback(|e: InputData| Msg::SettingsUpdate("twitter_username", e.value))/>
+                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="jack" oninput=self.link.callback(|e: InputData| Msg::SettingsUpdate("twitter_username", e.value)) value=settings.twitter_username/>
                         </label><br/>
 
-                        {"INFO: These options are a preview of the next update. For now it is not working at all."}<br/>
-                        <br/>
-                        <Checkbox<CheckboxId> id=CheckboxId::Twitter label="Follow on Twitch"/>
-                        <Checkbox<CheckboxId> id=CheckboxId::Twitter label="Tweet"/>
-                        <Checkbox<CheckboxId> id=CheckboxId::Twitter label="Retweet"/>
-                        <Checkbox<CheckboxId> id=CheckboxId::Twitter label="Follow on twitter"/>
+                        <Checkbox<CheckboxId> id=CheckboxId::BanUnknownMethods label="Ban unknown methods" onchange=&check_clbk checked=settings.ban_unknown_methods/>
+                        <Checkbox<CheckboxId> id=CheckboxId::TwitterFollow label="Follow on Twitter automatically" onchange=&check_clbk checked=settings.auto_follow_twitter/>
+                        <Checkbox<CheckboxId> id=CheckboxId::TwitterTweet label="Automate tweets" onchange=&check_clbk checked=settings.auto_tweet/>
+                        <Checkbox<CheckboxId> id=CheckboxId::TwitterRetweet label="Automate retweets" onchange=&check_clbk checked=settings.auto_retweet/>
 
                         <button class="btn btn-primary ng-binding" onclick=self.link.callback(|e: _| Msg::ChangeTab(Tab::Main))>{"Save"}</button>
                     </div>
@@ -161,7 +161,7 @@ impl Component for Model {
             Tab::Stats => {
                 html! {
                     <div>
-                        {format!("Total entries: {}", settings.total_entries)}<br/>
+                        {format!("Total entries: {}", self.settings.borrow().total_entries)}<br/>
                         {"More stats will be available in the future."}<br/>
                         <br/>
                         <button class="btn btn-primary ng-binding" onclick=self.link.callback(|e: _| Msg::ChangeTab(Tab::Main))>{"Go back"}</button>

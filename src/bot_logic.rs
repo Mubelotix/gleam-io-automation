@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
 use std::time::Duration;
 use string_tools::*;
 use web_sys::window;
@@ -29,12 +29,22 @@ fn jsmd5(input: &str) -> String {
         .unwrap()
 }
 
+fn true_function() -> bool {true}
+
 #[derive(Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default)]
     pub twitter_username: String,
     #[serde(default)]
     pub total_entries: usize,
+    #[serde(default = "true_function")]
+    pub ban_unknown_methods: bool,
+    #[serde(default)]
+    pub auto_follow_twitter: bool,
+    #[serde(default)]
+    pub auto_retweet: bool,
+    #[serde(default)]
+    pub auto_tweet: bool,
 }
 
 impl std::default::Default for Settings {
@@ -42,6 +52,10 @@ impl std::default::Default for Settings {
         Settings {
             twitter_username: String::new(),
             total_entries: 0,
+            ban_unknown_methods: true,
+            auto_follow_twitter: false,
+            auto_retweet: false,
+            auto_tweet: false,
         }
     }
 }
@@ -65,7 +79,7 @@ impl Settings {
 
 pub async fn run(
     link: Rc<ComponentLink<Model>>,
-    settings: Arc<Mutex<Settings>>,
+    settings: Rc<RefCell<Settings>>,
 ) -> Result<(), Message<String>> {
     let window = window().unwrap();
     let location = window.location();
@@ -115,14 +129,10 @@ pub async fn run(
         if entry.requires_details {
             match entry.provider.as_str() {
                 "twitter" => {
-                    let settings = match settings.lock() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => poisoned.into_inner(),
-                    };
                     frm.insert(
                         &entry.id,
                         json! {{
-                            "twitter_username": settings.twitter_username,
+                            "twitter_username": settings.borrow().twitter_username,
                         }},
                     );
                 }
@@ -135,6 +145,96 @@ pub async fn run(
     let len = giveaway.entry_methods.len() as f32;
     for idx in 0..giveaway.entry_methods.len() {
         let entry = &giveaway.entry_methods[idx];
+
+        if contestant.entered.contains_key(&entry.id) {
+            log!("Already entered, skipping");
+            continue;
+        }
+
+        match entry.entry_type.as_str() {
+            "twitter_follow" => if settings.borrow().auto_follow_twitter {
+                let username = match &entry.config1 {
+                    Some(username) => username,
+                    None => {
+                        link.send_message(Msg::LogMessage(Message::Error(
+                            "Invalid gleam.io entry".to_string(),
+                        )));
+                        continue;
+                    }
+                };
+
+                let url = format!("https://twitter.com/intent/follow?screen_name={}&gleambot=true", username);
+                
+                if let Err(e) = window.open_with_url(&url) {
+                    link.send_message(Msg::LogMessage(Message::Error(format!(
+                        "Failed to open a new window: {:?}",
+                        e
+                    ))));
+                    continue;
+                } else {
+                    sleep(Duration::from_secs(15)).await;
+                }
+            } else {
+                link.send_message(Msg::LogMessage(Message::Info(
+                    "Skipped twitter follow in accordance to your settings. Considering enabling auto-follow to get more entries.".to_string()
+                )));
+                continue;
+            },
+            "twitter_retweet" => if settings.borrow().auto_retweet {
+                if let Some(config1) = &entry.config1 {
+                    if let Some(id) = get_all_after_strict(&config1, "/status/") {
+                        let url = format!("https://twitter.com/intent/retweet?tweet_id={}&gleambot=true", id);
+                        if let Err(e) = window.open_with_url(&url) {
+                            link.send_message(Msg::LogMessage(Message::Error(format!(
+                                "Failed to open a new window: {:?}",
+                                e
+                            ))));
+                            continue;
+                        } else {
+                            sleep(Duration::from_secs(15)).await;
+                        }
+                    }
+                }
+            } else {
+                link.send_message(Msg::LogMessage(Message::Info(
+                    "Skipped retweet in accordance to your settings. Considering enabling auto-retweet to get more entries.".to_string()
+                )));
+                continue;
+            }
+            "twitter_tweet" => if settings.borrow().auto_tweet {
+                if let Some(text) = &entry.config1 {
+                    let url = format!("https://twitter.com/intent/tweet?text={}&gleambot=true", text);
+                    if let Err(e) = window.open_with_url(&url) {
+                        link.send_message(Msg::LogMessage(Message::Error(format!(
+                            "Failed to open a new window: {:?}",
+                            e
+                        ))));
+                        continue;
+                    } else {
+                        sleep(Duration::from_secs(15)).await;
+                    }
+                }
+            } else {
+                link.send_message(Msg::LogMessage(Message::Info(
+                    "Skipped tweet in accordance to your settings. Considering enabling auto-tweet to get more entries.".to_string()
+                )));
+                continue;
+            }
+            entry_type => {
+                if settings.borrow().ban_unknown_methods {
+                    link.send_message(Msg::LogMessage(Message::Warning(format!(
+                        "Encountered an unknown entry type: {:?}. This entry method has been skipped. You can enable auto-entering for unknown entry methods in the settings, but it may not work properly.",
+                        entry_type
+                    ))));
+                    continue;
+                } else {
+                    link.send_message(Msg::LogMessage(Message::Warning(format!(
+                        "Encountered an unknown entry type: {:?}. The bot will try to enter (since it is enabled in the settings). Could you please report this unknown entry method by opening an issue on Github or by sending an email to mubelotix@gmail.com? Please mention the url of this giveaway in your report. That would help me a lot to extend and improve the bot support. Thank you very much.",
+                        entry_type
+                    ))));
+                }
+            },
+        }
 
         let body = json! {{
             "dbg": dbg,
@@ -221,16 +321,12 @@ pub async fn run(
                 Message::Warning("Already entered!".to_string()),
             )),
             EntryResponse::Success { worth, .. } => {
-                let mut settings = match settings.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                settings.total_entries += worth;
-                settings.save();
+                settings.borrow_mut().total_entries += worth;
+                settings.borrow().save();
             },
             EntryResponse::BotSpotted { cheater } => {
                 if cheater {
-                    return Err(Message::Danger("The bot has been detected by gleam.io's server. Shutting down.".to_string()))
+                    return Err(Message::Danger("Gleam.io says you are creating too many entries. Shutting down.".to_string()))
                 }
             }
         }

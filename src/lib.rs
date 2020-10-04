@@ -32,6 +32,7 @@ pub async fn main() {
         .get_elements_by_class_name("incentive-description")
         .item(0)
         .unwrap();
+    panel_container.set_class_name("incentive-description center middle");
     panel_container.append_child(&style).unwrap();
     panel_container.append_child(&panel).unwrap();
 
