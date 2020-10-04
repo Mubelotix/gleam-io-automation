@@ -2,11 +2,10 @@ use crate::{
     bot_logic::{run, Settings},
     messages::Message,
 };
-use crate::{checkbox::*, format::*};
+use crate::checkbox::*;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use wasm_bindgen_futures::*;
-use web_sys::*;
 use yew::prelude::*;
 
 pub enum Tab {
@@ -18,7 +17,6 @@ pub enum Tab {
 pub struct Model {
     link: Rc<ComponentLink<Self>>,
     settings: Arc<Mutex<Settings>>,
-    storage: Storage,
     tab: Tab,
     progress: usize,
     progress_state: BotState,
@@ -46,15 +44,11 @@ impl Component for Model {
     type Properties = ();
     fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
         let link = Rc::new(link);
-        let window = window().unwrap();
-        let storage = window.local_storage().unwrap().unwrap();
-
         let settings = Arc::new(Mutex::new(Settings::load()));
 
         Self {
             link,
             settings,
-            storage,
             tab: Tab::Main,
             progress: 0,
             progress_state: BotState::Waiting,

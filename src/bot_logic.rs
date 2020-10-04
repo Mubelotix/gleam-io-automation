@@ -217,8 +217,8 @@ pub async fn run(
                 "Reload required: {}",
                 b
             )))),
-            EntryResponse::AlreadyEntered { difference, .. } => link.send_message(Msg::LogMessage(
-                Message::Warning(format!("Already entered {} minutes ago", difference / 3600)),
+            EntryResponse::AlreadyEntered { .. } => link.send_message(Msg::LogMessage(
+                Message::Warning("Already entered!".to_string()),
             )),
             EntryResponse::Success { worth, .. } => {
                 let mut settings = match settings.lock() {

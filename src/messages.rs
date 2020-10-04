@@ -1,5 +1,6 @@
 use yew::prelude::*;
 
+#[allow(dead_code)]
 pub enum Message<T: std::fmt::Display> {
     Warning(T),
     Tip(T),
