@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -196,10 +196,25 @@ pub struct RecoverContestantResponse {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum EntryResponse {
-    Success { new: u64, worth: usize },
-    AlreadyEntered { existing_at: u64, worth: usize, difference: u64, interval_seconds: usize},
-    RefreshRequired { require_campaign_refresh: bool },
-    Error { error: String }
+    Success {
+        new: u64,
+        worth: usize,
+    },
+    AlreadyEntered {
+        existing_at: u64,
+        worth: usize,
+        difference: u64,
+        interval_seconds: usize,
+    },
+    RefreshRequired {
+        require_campaign_refresh: bool,
+    },
+    Error {
+        error: String,
+    },
+    BotSpotted {
+        cheater: bool,
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -211,7 +226,7 @@ pub struct StoredContestant {
     pub lastname: String,
     pub name: String,
     pub send_confirmation: bool,
-    pub stored_dob: String
+    pub stored_dob: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

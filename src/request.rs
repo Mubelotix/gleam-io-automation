@@ -1,11 +1,11 @@
-use serde::{Serialize, de::DeserializeOwned};
+use crate::util::*;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use crate::util::*;
-use wasm_bindgen::JsValue;
-use web_sys::*;
-use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::*;
 
 pub enum Method<T: Serialize> {
     Get,
@@ -28,15 +28,23 @@ impl<T: Serialize> Method<T> {
             Method::Post(v) => match serde_json::to_string(v) {
                 Ok(v) => Some(v),
                 Err(e) => {
-                    elog!("Failed to serialize body data in the request! ERROR: {:?}", e);
+                    elog!(
+                        "Failed to serialize body data in the request! ERROR: {:?}",
+                        e
+                    );
                     None
-                },
+                }
             },
         }
     }
 }
 
-pub async fn request_str<T: Serialize>(url: &str, method: Method<T>, headers: HashMap<String, String>, csrf: &str) -> Result<String, ()> {
+pub async fn request_str<T: Serialize>(
+    url: &str,
+    method: Method<T>,
+    headers: HashMap<String, String>,
+    csrf: &str,
+) -> Result<String, ()> {
     let document: HtmlDocument = window().unwrap().document().unwrap().dyn_into().unwrap();
     let cookies = document.cookie().unwrap();
     let xsrf = string_tools::get_all_between(&cookies, "; XSRF-TOKEN=", ";");
@@ -48,8 +56,10 @@ pub async fn request_str<T: Serialize>(url: &str, method: Method<T>, headers: Ha
     hdrs.append("x-xsrf-token", xsrf).unwrap();
     if !csrf.is_empty() {
         hdrs.append("x-csrf-token", csrf).unwrap();
-        hdrs.append("accept", "application/json, text/plain, */*").unwrap();
-        hdrs.append("content-type", "application/json;charset=UTF-8").unwrap();
+        hdrs.append("accept", "application/json, text/plain, */*")
+            .unwrap();
+        hdrs.append("content-type", "application/json;charset=UTF-8")
+            .unwrap();
     }
 
     let mut r_init = RequestInit::new();
@@ -91,13 +101,18 @@ pub async fn request_str<T: Serialize>(url: &str, method: Method<T>, headers: Ha
     Ok(text)
 }
 
-pub async fn request<T: Serialize, V: DeserializeOwned>(url: &str, method: Method<T>, headers: HashMap<String, String>, csrf: &str) -> Result<V, ()> {
+pub async fn request<T: Serialize, V: DeserializeOwned>(
+    url: &str,
+    method: Method<T>,
+    headers: HashMap<String, String>,
+    csrf: &str,
+) -> Result<V, ()> {
     let text = request_str(url, method, headers, csrf).await?;
 
     let value = match serde_json::from_str::<V>(&text) {
         Ok(value) => value,
         Err(e) => {
-            elog!("Failed to parse response as json! ERROR: {:?}",e);
+            elog!("Failed to parse response as json! ERROR: {:?}", e);
             return Err(());
         }
     };

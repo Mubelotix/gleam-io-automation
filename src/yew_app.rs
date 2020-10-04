@@ -1,5 +1,8 @@
+use crate::{
+    bot_logic::{run, Settings},
+    messages::Message,
+};
 use crate::{checkbox::*, format::*};
-use crate::{bot_logic::{run, Settings}, messages::Message};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use wasm_bindgen_futures::*;

@@ -1,26 +1,32 @@
+use crate::format::*;
+use crate::request::*;
 use crate::util::*;
 use crate::{
     messages::Message,
     yew_app::{Model, Msg},
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use string_tools::*;
-use crate::request::*;
 use web_sys::window;
 use yew::prelude::*;
-use std::collections::HashMap;
-use crate::format::*;
-use serde_json::{Value, json};
-use serde::{Serialize, Deserialize};
 
 fn get_fraud() -> String {
-    js_sys::eval("fraudService.hashedFraud()").unwrap().as_string().unwrap()
+    js_sys::eval("fraudService.hashedFraud()")
+        .unwrap()
+        .as_string()
+        .unwrap()
 }
 
 fn jsmd5(input: &str) -> String {
-    js_sys::eval(&format!(r#"jsmd5("{}")"#, input)).unwrap().as_string().unwrap()
+    js_sys::eval(&format!(r#"jsmd5("{}")"#, input))
+        .unwrap()
+        .as_string()
+        .unwrap()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,14 +49,16 @@ impl std::default::Default for Settings {
 impl Settings {
     pub fn save(&self) {
         let storage = window().unwrap().local_storage().unwrap().unwrap();
-        storage.set("gleam_bot_settings", &serde_json::to_string(&self).unwrap()).unwrap();
+        storage
+            .set("gleam_bot_settings", &serde_json::to_string(&self).unwrap())
+            .unwrap();
     }
 
     pub fn load() -> Settings {
         let storage = window().unwrap().local_storage().unwrap().unwrap();
         match storage.get("gleam_bot_settings").ok().flatten() {
             Some(value) => serde_json::from_str(&value).unwrap_or_default(),
-            None => Settings::default()
+            None => Settings::default(),
         }
     }
 }
@@ -62,8 +70,10 @@ pub async fn run(
     let window = window().unwrap();
     let location = window.location();
     let href = location.href().unwrap();
-    
-    let main_page = request_str::<()>(&href, Method::Get, HashMap::new(), "").await.unwrap();
+
+    let main_page = request_str::<()>(&href, Method::Get, HashMap::new(), "")
+        .await
+        .unwrap();
 
     log!("{}", main_page);
     let fpr = get_fraud();
@@ -73,12 +83,8 @@ pub async fn run(
     let csrf =
         string_tools::get_all_between_strict(&text, "<meta name=\"csrf-token\" content=\"", "\"")
             .unwrap();
-    let json = string_tools::get_all_between_strict(
-        &text,
-        " ng-init='initCampaign(",
-        ")'>",
-    )
-    .unwrap();
+    let json =
+        string_tools::get_all_between_strict(&text, " ng-init='initCampaign(", ")'>").unwrap();
     let json = json.replace("&quot;", "\"");
     let giveaway = match serde_json::from_str::<Giveaway>(&json) {
         Ok(g) => g,
@@ -89,12 +95,8 @@ pub async fn run(
     };
     log!("giveaway: {:#?}", giveaway);
 
-    let json = string_tools::get_all_between_strict(
-        &text,
-        " ng-init='initContestant(",
-        ");",
-    )
-    .unwrap();
+    let json =
+        string_tools::get_all_between_strict(&text, " ng-init='initContestant(", ");").unwrap();
     let json = json.replace("&quot;", "\"");
     let init_contestant = match serde_json::from_str::<InitContestant>(&json) {
         Ok(g) => g,
@@ -117,11 +119,14 @@ pub async fn run(
                         Ok(guard) => guard,
                         Err(poisoned) => poisoned.into_inner(),
                     };
-                    frm.insert(&entry.id, json!{{
-                        "twitter_username": settings.twitter_username,
-                    }});
-                },
-                p => println!("unknown provider {}", p)
+                    frm.insert(
+                        &entry.id,
+                        json! {{
+                            "twitter_username": settings.twitter_username,
+                        }},
+                    );
+                }
+                p => println!("unknown provider {}", p),
             }
         }
     }
@@ -140,41 +145,82 @@ pub async fn run(
             "grecaptcha_response": null,
             "h": jsmd5(&format!("-{}-{}-{}-{}", contestant.id, entry.id, entry.entry_type, giveaway.campaign.key))
         }};
-        println!("{}", body);
+        log!("request: {:?}", body);
 
-        let rep = request::<Value, EntryResponse>(&format!("https://gleam.io/enter/{}/{}", giveaway.campaign.key, entry.id), Method::Post(body), HashMap::new(), csrf).await.unwrap();
-
-        println!("{:?}", rep);
+        let rep = match request::<Value, EntryResponse>(
+            &format!(
+                "https://gleam.io/enter/{}/{}",
+                giveaway.campaign.key, entry.id
+            ),
+            Method::Post(body),
+            HashMap::new(),
+            csrf,
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                link.send_message(Msg::LogMessage(Message::Warning(format!(
+                    "Unexpected response to HTTP request: {:?}",
+                    e
+                ))));
+                continue;
+            }
+        };
+        log!("response: {:?}", rep);
 
         match rep {
-            EntryResponse::Error{error} => match error.as_str() {
+            EntryResponse::Error { error } => match error.as_str() {
                 "not_logged_in" => {
-                    match request::<SetContestantRequest, Contestant>("https://gleam.io/set-contestant", Method::Post(SetContestantRequest {
-                        additional_details: true,
-                        campaign_key: giveaway.campaign.key.clone(),
-                        contestant: StoredContestant {
-                            competition_subscription: None,
-                            date_of_birth: contestant.stored_dob.clone(),
-                            email: contestant.email.clone(),
-                            firstname: get_all_before(&contestant.name, " ").to_string(),
-                            lastname: get_all_after(&contestant.name, " ").to_string(),
-                            name: contestant.name.clone(),
-                            send_confirmation: false,
-                            stored_dob: contestant.stored_dob.clone(),
-                        },
-                    }), HashMap::new(), csrf).await {
+                    match request::<SetContestantRequest, Contestant>(
+                        "https://gleam.io/set-contestant",
+                        Method::Post(SetContestantRequest {
+                            additional_details: true,
+                            campaign_key: giveaway.campaign.key.clone(),
+                            contestant: StoredContestant {
+                                competition_subscription: None,
+                                date_of_birth: contestant.stored_dob.clone(),
+                                email: contestant.email.clone(),
+                                firstname: get_all_before(&contestant.name, " ").to_string(),
+                                lastname: get_all_after(&contestant.name, " ").to_string(),
+                                name: contestant.name.clone(),
+                                send_confirmation: false,
+                                stored_dob: contestant.stored_dob.clone(),
+                            },
+                        }),
+                        HashMap::new(),
+                        csrf,
+                    )
+                    .await
+                    {
                         Ok(c) => contestant = c,
-                        Err(e) => link.send_message(Msg::LogMessage(Message::Error(format!("Unable to auto login: {:?}", e))))
+                        Err(e) => link.send_message(Msg::LogMessage(Message::Error(format!(
+                            "Unable to auto login: {:?}",
+                            e
+                        )))),
                     }
-                },
-                "error_auth_expired" => {
-                    link.send_message(Msg::LogMessage(Message::Error(format!("Gleam.io is unable to check the action. Please login to {}.", entry.provider))))
                 }
-                error => link.send_message(Msg::LogMessage(Message::Error(format!("An unknown error occured while trying get entries: {:?}", error)))),
+                "error_auth_expired" => {
+                    link.send_message(Msg::LogMessage(Message::Error(format!(
+                        "Gleam.io is unable to check the action. Please login to {}.",
+                        entry.provider
+                    ))))
+                }
+                error => link.send_message(Msg::LogMessage(Message::Error(format!(
+                    "An unknown error occured while trying get entries: {:?}",
+                    error
+                )))),
             },
-            EntryResponse::RefreshRequired{ require_campaign_refresh: b } => link.send_message(Msg::LogMessage(Message::Warning(format!("Reload required: {}", b)))),
-            EntryResponse::AlreadyEntered{difference,..} => link.send_message(Msg::LogMessage(Message::Warning(format!("Already entered {} minutes ago", difference / 3600)))),
-            EntryResponse::Success{worth,..} => {
+            EntryResponse::RefreshRequired {
+                require_campaign_refresh: b,
+            } => link.send_message(Msg::LogMessage(Message::Warning(format!(
+                "Reload required: {}",
+                b
+            )))),
+            EntryResponse::AlreadyEntered { difference, .. } => link.send_message(Msg::LogMessage(
+                Message::Warning(format!("Already entered {} minutes ago", difference / 3600)),
+            )),
+            EntryResponse::Success { worth, .. } => {
                 let mut settings = match settings.lock() {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
@@ -182,12 +228,17 @@ pub async fn run(
                 settings.total_entries += worth;
                 settings.save();
             },
+            EntryResponse::BotSpotted { cheater } => {
+                if cheater {
+                    return Err(Message::Danger("The bot has been detected by gleam.io's server. Shutting down.".to_string()))
+                }
+            }
         }
 
         if frm.get(&entry.id).is_none() {
-            frm.insert(&entry.id, json!{null});
+            frm.insert(&entry.id, json! {null});
         }
-        dbg.insert(&entry.id, json!{null});
+        dbg.insert(&entry.id, json! {null});
 
         current += 1.0;
         link.send_message(Msg::ProgressChange(
