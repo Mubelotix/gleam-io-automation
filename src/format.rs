@@ -198,6 +198,25 @@ pub struct RecoverContestantResponse {
 pub enum EntryResponse {
     Success { new: u64, worth: usize },
     AlreadyEntered { existing_at: u64, worth: usize, difference: u64, interval_seconds: usize},
-    RefreshRequired { require_campaign_refresh: String },
+    RefreshRequired { require_campaign_refresh: bool },
     Error { error: String }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct StoredContestant {
+    pub competition_subscription: Option<Value>,
+    pub date_of_birth: String,
+    pub email: String,
+    pub firstname: String,
+    pub lastname: String,
+    pub name: String,
+    pub send_confirmation: bool,
+    pub stored_dob: String
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SetContestantRequest {
+    pub additional_details: bool,
+    pub campaign_key: String,
+    pub contestant: StoredContestant,
 }

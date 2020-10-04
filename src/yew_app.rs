@@ -1,5 +1,5 @@
-use crate::checkbox::*;
-use crate::{bot_logic::run, messages::Message};
+use crate::{checkbox::*, format::*};
+use crate::{bot_logic::{run, Settings}, messages::Message};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use wasm_bindgen_futures::*;
@@ -14,7 +14,7 @@ pub enum Tab {
 
 pub struct Model {
     link: Rc<ComponentLink<Self>>,
-    infos: Arc<Mutex<(String, String)>>,
+    settings: Arc<Mutex<Settings>>,
     storage: Storage,
     tab: Tab,
     progress: usize,
@@ -25,10 +25,8 @@ pub struct Model {
 pub enum Msg {
     Done,
     ProgressChange(usize),
-    EmailUpdate(String),
-    NameUpdate(String),
+    SettingsUpdate(&'static str, String),
     ChangeTab(Tab),
-    AddToStats(usize),
     LogMessage(Message<String>),
     Launch,
 }
@@ -48,24 +46,11 @@ impl Component for Model {
         let window = window().unwrap();
         let storage = window.local_storage().unwrap().unwrap();
 
-        let email = if let Ok(Some(email)) = storage.get("gleam_bot_email") {
-            email
-        } else {
-            String::from("unknown@email.com")
-        };
-
-        let infos = Arc::new(Mutex::new((
-            email,
-            storage
-                .get("gleam_bot_name")
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| String::from("Undefined Random")),
-        )));
+        let settings = Arc::new(Mutex::new(Settings::load()));
 
         Self {
             link,
-            infos,
+            settings,
             storage,
             tab: Tab::Main,
             progress: 0,
@@ -77,23 +62,17 @@ impl Component for Model {
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
         match msg {
             Msg::Done => self.progress_state = BotState::Ended,
-            Msg::EmailUpdate(email) => {
-                self.storage.set("gleam_bot_email", &email).unwrap();
-
-                let mut guard = match self.infos.lock() {
+            Msg::SettingsUpdate(name, value) => {
+                let mut settings = match self.settings.lock() {
                     Ok(guard) => guard,
                     Err(poisoned) => poisoned.into_inner(),
                 };
-                guard.0 = email;
-            }
-            Msg::NameUpdate(name) => {
-                self.storage.set("gleam_bot_name", &name).unwrap();
 
-                let mut guard = match self.infos.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                guard.1 = name;
+                match name {
+                    "twitter_username" => settings.twitter_username = value,
+                    name => panic!("No field with the name {}", name),
+                }
+                settings.save();
             }
             Msg::ChangeTab(tab) => {
                 self.tab = tab;
@@ -104,12 +83,12 @@ impl Component for Model {
             Msg::Launch => {
                 if self.progress_state == BotState::Waiting {
                     let link2 = Rc::clone(&self.link);
-                    let infos2 = Arc::clone(&self.infos);
+                    let settings2 = Arc::clone(&self.settings);
                     self.progress = 0;
                     self.progress_state = BotState::Running;
                     spawn_local(async move {
                         let link3 = Rc::clone(&link2);
-                        match run(link2, infos2).await {
+                        match run(link2, settings2).await {
                             Ok(()) => (),
                             Err(msg) => {
                                 link3.send_message(Msg::Done);
@@ -122,39 +101,14 @@ impl Component for Model {
             Msg::LogMessage(msg) => {
                 self.messages.push(msg);
             }
-            Msg::AddToStats(new_entries) => {
-                let mut total_entries = match self
-                    .storage
-                    .get("stats_total_entries")
-                    .map(|t| t.map(|t| t.parse::<usize>()))
-                {
-                    Ok(Some(Ok(total_entries))) => total_entries,
-                    _ => {
-                        elog!("Failed to read stats");
-                        0
-                    }
-                };
-                total_entries += new_entries;
-                self.storage
-                    .set("stats_total_entries", &total_entries.to_string())
-                    .unwrap_or_else(|e| elog!("Failed to store stats: {:?}", e));
-            }
         }
         true
     }
 
     fn view(&self) -> Html {
-        let guard = match self.infos.lock() {
+        let settings = match self.settings.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
-        };
-        let email = match guard.0.as_str() {
-            "unknown@email.com" => "",
-            email => email,
-        };
-        let name = match guard.1.as_str() {
-            "Undefined Random" => "",
-            name => name,
         };
 
         match self.tab {
@@ -175,10 +129,10 @@ impl Component for Model {
                             match self.progress_state {
                                 BotState::Waiting => html! { <button class="btn btn-primary ng-binding" onclick=self.link.callback(|e: _| Msg::Launch)>{"Launch"}</button> },
                                 BotState::Running => html! {
-                                    { "The bot is running." }
+                                    { "The bot is running. HTTP requests completing entries are made in the background." }
                                 },
                                 BotState::Ended => html! {
-                                    { "The bot has finished." }
+                                    { "The bot has finished. Reload this page to see the result." }
                                 },
                             }
                         }<br/><br/>
@@ -192,13 +146,8 @@ impl Component for Model {
                 html! {
                     <div>
                         <label>
-                            {"Your email: "}
-                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="alice.smith@example.com" oninput=self.link.callback(|e: InputData| Msg::EmailUpdate(e.value)) value=email/>
-                        </label><br/>
-
-                        <label>
-                            {"Your name: "}
-                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="Alice Smith" oninput=self.link.callback(|e: InputData| Msg::NameUpdate(e.value)) value=name/>
+                            {"Your Twitter username: "}
+                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="jack" oninput=self.link.callback(|e: InputData| Msg::SettingsUpdate("twitter_username", e.value))/>
                         </label><br/>
 
                         {"INFO: These options are a preview of the next update. For now it is not working at all."}<br/>
@@ -213,21 +162,9 @@ impl Component for Model {
                 }
             }
             Tab::Stats => {
-                let total_entries = match self
-                    .storage
-                    .get("stats_total_entries")
-                    .map(|t| t.map(|t| t.parse::<usize>()))
-                {
-                    Ok(Some(Ok(total_entries))) => total_entries,
-                    _ => {
-                        elog!("Failed to read stats");
-                        0
-                    }
-                };
-
                 html! {
                     <div>
-                        {format!("Total entries: {}", total_entries)}<br/>
+                        {format!("Total entries: {}", settings.total_entries)}<br/>
                         {"More stats will be available in the future."}<br/>
                         <br/>
                         <button class="btn btn-primary ng-binding" onclick=self.link.callback(|e: _| Msg::ChangeTab(Tab::Main))>{"Go back"}</button>

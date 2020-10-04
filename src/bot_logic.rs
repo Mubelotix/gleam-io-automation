@@ -1,23 +1,19 @@
-use crate::enums::*;
 use crate::util::*;
 use crate::{
     messages::Message,
     yew_app::{Model, Msg},
 };
-use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use string_tools::*;
-use wasm_bindgen::JsCast;
-use wasm_bindgen::JsValue;
 use crate::request::*;
 use web_sys::window;
 use yew::prelude::*;
 use std::collections::HashMap;
 use crate::format::*;
 use serde_json::{Value, json};
+use serde::{Serialize, Deserialize};
 
 fn get_fraud() -> String {
     js_sys::eval("fraudService.hashedFraud()").unwrap().as_string().unwrap()
@@ -27,9 +23,41 @@ fn jsmd5(input: &str) -> String {
     js_sys::eval(&format!(r#"jsmd5("{}")"#, input)).unwrap().as_string().unwrap()
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Settings {
+    #[serde(default)]
+    pub twitter_username: String,
+    #[serde(default)]
+    pub total_entries: usize,
+}
+
+impl std::default::Default for Settings {
+    fn default() -> Settings {
+        Settings {
+            twitter_username: String::new(),
+            total_entries: 0,
+        }
+    }
+}
+
+impl Settings {
+    pub fn save(&self) {
+        let storage = window().unwrap().local_storage().unwrap().unwrap();
+        storage.set("gleam_bot_settings", &serde_json::to_string(&self).unwrap()).unwrap();
+    }
+
+    pub fn load() -> Settings {
+        let storage = window().unwrap().local_storage().unwrap().unwrap();
+        match storage.get("gleam_bot_settings").ok().flatten() {
+            Some(value) => serde_json::from_str(&value).unwrap_or_default(),
+            None => Settings::default()
+        }
+    }
+}
+
 pub async fn run(
     link: Rc<ComponentLink<Model>>,
-    infos: Arc<Mutex<(String, String)>>,
+    settings: Arc<Mutex<Settings>>,
 ) -> Result<(), Message<String>> {
     let window = window().unwrap();
     let location = window.location();
@@ -76,7 +104,7 @@ pub async fn run(
         }
     };
     log!("contestant: {:#?}", init_contestant);
-    let contestant = init_contestant.contestant;
+    let mut contestant = init_contestant.contestant;
 
     let mut dbg: HashMap<&String, Value> = HashMap::new();
     let mut frm: HashMap<&String, Value> = HashMap::new();
@@ -84,9 +112,15 @@ pub async fn run(
         let entry = &giveaway.entry_methods[idx];
         if entry.requires_details {
             match entry.provider.as_str() {
-                "twitter" => {frm.insert(&entry.id, json!{{
-                    "twitter_username": "UndefinedUndef9",
-                }});},
+                "twitter" => {
+                    let settings = match settings.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+                    frm.insert(&entry.id, json!{{
+                        "twitter_username": settings.twitter_username,
+                    }});
+                },
                 p => println!("unknown provider {}", p)
             }
         }
@@ -113,10 +147,41 @@ pub async fn run(
         println!("{:?}", rep);
 
         match rep {
-            EntryResponse::Error{error: e} => link.send_message(Msg::LogMessage(Message::Error(format!("An error occured while trying to confirm an entry: {:?}", e)))),
+            EntryResponse::Error{error} => match error.as_str() {
+                "not_logged_in" => {
+                    match request::<SetContestantRequest, Contestant>("https://gleam.io/set-contestant", Method::Post(SetContestantRequest {
+                        additional_details: true,
+                        campaign_key: giveaway.campaign.key.clone(),
+                        contestant: StoredContestant {
+                            competition_subscription: None,
+                            date_of_birth: contestant.stored_dob.clone(),
+                            email: contestant.email.clone(),
+                            firstname: get_all_before(&contestant.name, " ").to_string(),
+                            lastname: get_all_after(&contestant.name, " ").to_string(),
+                            name: contestant.name.clone(),
+                            send_confirmation: false,
+                            stored_dob: contestant.stored_dob.clone(),
+                        },
+                    }), HashMap::new(), csrf).await {
+                        Ok(c) => contestant = c,
+                        Err(e) => link.send_message(Msg::LogMessage(Message::Error(format!("Unable to auto login: {:?}", e))))
+                    }
+                },
+                "error_auth_expired" => {
+                    link.send_message(Msg::LogMessage(Message::Error(format!("Gleam.io is unable to check the action. Please login to {}.", entry.provider))))
+                }
+                error => link.send_message(Msg::LogMessage(Message::Error(format!("An unknown error occured while trying get entries: {:?}", error)))),
+            },
             EntryResponse::RefreshRequired{ require_campaign_refresh: b } => link.send_message(Msg::LogMessage(Message::Warning(format!("Reload required: {}", b)))),
             EntryResponse::AlreadyEntered{difference,..} => link.send_message(Msg::LogMessage(Message::Warning(format!("Already entered {} minutes ago", difference / 3600)))),
-            EntryResponse::Success{new: _, worth: _} => (),
+            EntryResponse::Success{worth,..} => {
+                let mut settings = match settings.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                settings.total_entries += worth;
+                settings.save();
+            },
         }
 
         if frm.get(&entry.id).is_none() {
