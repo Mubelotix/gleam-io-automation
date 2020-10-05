@@ -83,7 +83,7 @@ pub struct EntryMethod {
     pub must_verify: bool,
     pub requires_authentication: bool,
     pub can_authenticate: bool,
-    pub requires_details: bool,
+    pub requires_details: bool, // todo use this
     pub display_information: Option<bool>,
     pub auth_for_details: bool,
     pub api_fallback: Option<Value>,
@@ -119,7 +119,7 @@ pub struct EntryMethod {
     pub restrict: Option<Value>,
     pub mandatory: bool,
     pub workflow: Option<String>,
-    pub timer_action: Option<Value>,
+    pub timer_action: Option<u64>,
     pub limit: usize,
     pub always_require_email: bool,
     pub media_action: bool,
@@ -161,7 +161,9 @@ pub struct SetContestantResponse {
 #[derive(Debug, Deserialize)]
 pub struct Contestant {
     pub auth_key: Option<String>,
+    #[serde(default)]
     pub authentications: Vec<Value>,
+    #[serde(default)]
     pub banned: bool,
     pub claims: Value,
     pub competition_subscription: Option<bool>,
@@ -214,7 +216,10 @@ pub enum EntryResponse {
     },
     BotSpotted {
         cheater: bool,
-    }
+    },
+    IpBan {
+        ip_ban: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

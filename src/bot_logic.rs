@@ -15,8 +15,6 @@ use string_tools::*;
 use web_sys::window;
 use yew::prelude::*;
 
-const WELL_KNOWN_METHODS: [&str; 4] = ["facebook_visit", "twitchtv_follow", "instagram_visit_profile", "youtube_visit_channel"];
-
 fn get_fraud() -> String {
     js_sys::eval("fraudService.hashedFraud()")
         .unwrap()
@@ -150,12 +148,21 @@ pub async fn run(
         ));
     };
 
-    let mut made_requests: Vec<&String> = Vec::new();
+    let testing = |s: &'static str| {
+        link.send_message(Msg::LogMessage(Message::Info(
+            format!("The bot tried a known entry method that has never been tested: {}. Did it work?", s)
+        )));
+    };
 
+    let mut made_requests: Vec<&String> = Vec::new();
+    let mut mandatory_entries: usize = 0;
+    let mut completed_mandatory_entries: usize = 0;
     let mut entry_methods = Vec::new();
+    let mut entries_number = 0;
     for entry in &giveaway.entry_methods {
         if entry.mandatory {
-            entry_methods.insert(0, entry);
+            entry_methods.insert(mandatory_entries, entry);
+            mandatory_entries += 1;
         } else {
             entry_methods.push(entry);
         }
@@ -168,6 +175,17 @@ pub async fn run(
             log!("Already entered, skipping");
             next();
             continue;
+        } else if !entry.mandatory && completed_mandatory_entries < mandatory_entries {
+            link.send_message(Msg::LogMessage(Message::Warning(
+                "Unable to try some entry methods because some mandatory entry methods were not successfully completed.".to_string()
+            )));
+            return Ok(())
+        } else if entry.actions_required > entries_number {
+            link.send_message(Msg::LogMessage(Message::Warning(
+                "Unable to try an entry method because it requires more entries first.".to_string()
+            )));
+            next();
+            continue;
         }
 
         let mut dbg: HashMap<&String, Value> = HashMap::new();
@@ -178,6 +196,7 @@ pub async fn run(
         for idx in 0..giveaway.entry_methods.len() {
             let entry = &giveaway.entry_methods[idx];
             if entry.requires_details {
+                #[allow(clippy::single_match)]
                 match entry.provider.as_str() {
                     "twitter" => {
                         frm.insert(
@@ -189,9 +208,9 @@ pub async fn run(
             }
         }
 
-        let mut details = None;
+        let mut details = (Value::Null, false, false);
         match entry.entry_type.as_str() {
-            "twitter_follow" => if settings.borrow().auto_follow_twitter {
+            "twitter_followA" => if settings.borrow().auto_follow_twitter {
                 let username = match &entry.config1 {
                     Some(username) => username,
                     None => {
@@ -216,7 +235,7 @@ pub async fn run(
                     sleep(Duration::from_secs(15)).await;
                 }
 
-                details = Some(twitter_value.clone());
+                //details = Some(twitter_value.clone());
             } else {
                 link.send_message(Msg::LogMessage(Message::Info(
                     "Skipped twitter follow in accordance to your settings. Consider enabling auto-follow to get more entries.".to_string()
@@ -224,7 +243,7 @@ pub async fn run(
                 next();
                 continue;
             },
-            "twitter_retweet" => if settings.borrow().auto_retweet {
+            "twitter_retweetA" => if settings.borrow().auto_retweet {
                 if let Some(config1) = &entry.config1 {
                     if let Some(id) = get_all_after_strict(&config1, "/status/") {
                         let url = format!("https://twitter.com/intent/retweet?tweet_id={}&gleambot=true", id);
@@ -237,7 +256,7 @@ pub async fn run(
                             continue;
                         } else {
                             sleep(Duration::from_secs(15)).await;
-                            details = Some(twitter_value.clone());
+                            //details = Some(twitter_value.clone());
                         }
                     }
                 }
@@ -248,7 +267,7 @@ pub async fn run(
                 next();
                 continue;
             }
-            "twitter_tweet" => if settings.borrow().auto_tweet {
+            "twitter_tweetA" => if settings.borrow().auto_tweet {
                 if let Some(text) = &entry.config1 {
                     let url = format!("https://twitter.com/intent/tweet?text={}&gleambot=true", text);
                     if let Err(e) = window.open_with_url(&url) {
@@ -260,7 +279,7 @@ pub async fn run(
                         continue;
                     } else {
                         sleep(Duration::from_secs(15)).await;
-                        details = Some(twitter_value.clone());
+                        //details = Some(twitter_value.clone());
                     }
                 }
             } else {
@@ -272,7 +291,7 @@ pub async fn run(
             }
             "custom_action" => {
                 match entry.template.as_str() {
-                    "choose_option" => {
+                    "choose_optionA" => {
                         let answers: Vec<&str> = match &entry.config6 {
                             Some(entries) => entries.split("\r\n").collect(),
                             None => {
@@ -294,15 +313,21 @@ pub async fn run(
                             }
                         };
 
-                        details = Some(Value::String(answer.to_string()));
+                        //details = Some(Value::String(answer.to_string()));
+                        testing("custom_action > choose_option > unique");
                     }
                     "visit" => {
                         match entry.workflow.as_deref() {
-                            Some("VisitQuestion") => {
-                                details = Some(Value::String("Îmi pare rău, nu înțeleg ce ar trebui să scriu aici.".to_string()));
+                            Some("VisitQuestionA") => {
+                                //details = Some(Value::String("Îmi pare rău, nu înțeleg ce ar trebui să scriu aici.".to_string()));
+                                testing("custom_action > visit > Some(\"VisitQuestion\")");
+                            }
+                            Some("VisitAutoA") => {
+                                //details = Some(Value::String("V".to_string()));
+                                testing("custom_action > visit > Some(\"VisitAuto\")");
                             }
                             Some("") => {
-                                details = Some(Value::Null);
+                                details = (Value::String("V".to_string()), false, false);
                             }
                             workflow => {
                                 err(format!("custom_action with template visit has an unknown workflow: {:?}", workflow));
@@ -311,12 +336,48 @@ pub async fn run(
                         }
                     },
                     "" => {
-                        details = Some(Value::String("Done".to_string()));
+                        details = (Value::String("Done".to_string()), true, false);
                     }
-                    _ => (),
+                    "question" => {
+                        details = (Value::String("Îmi pare rău, nu înțeleg ce ar trebui să scriu aici.".to_string()), true, true);
+                        testing("question");
+                    }
+                    "blog_comment" => {
+                        details = (Value::String("Îmi pare rău, nu înțeleg ce ar trebui să scriu aici.".to_string()), true, true);
+                    }
+                    "bonus" => {
+                        details = (Value::Null, false, false);
+                        testing("bonus");
+                    }
+                    template => {
+                        err(format!("custom_action with unknown template: {:?}", template));
+                        continue
+                    },
                 }
             }
-            entry_type if !WELL_KNOWN_METHODS.contains(&entry_type) => {
+            "twitchtv_follow" => {
+                details = (Value::Null, false, false);
+                testing("twitchtv_follow");
+            }
+            "facebook_visit" => {
+                details = (Value::String("V".to_string()), true, false);
+            }
+            "youtube_visit_channel" => {
+                details = (Value::String("V".to_string()), false, false);
+            }
+            "instagram_visit_profile" => {
+                details = (Value::String("V".to_string()), false, false);
+            }
+            "pinterest_visit" => {
+                details = (Value::String("V".to_string()), false, false);
+            }
+            "facebook_view_post" => {
+                details = (Value::Null, false, false);
+            }
+            "instagram_view_post" => {
+                details = (Value::String("Done".to_string()), true, false);
+            }
+            entry_type => {
                 if settings.borrow().ban_unknown_methods {
                     link.send_message(Msg::LogMessage(Message::Warning(format!(
                         "Encountered an unknown entry type: {:?}. This entry method has been skipped. You can enable auto-entering for unknown entry methods in the settings, but it may not work properly.",
@@ -331,26 +392,70 @@ pub async fn run(
                     ))));
                 }
             },
-            _ => details = Some(Value::String("V".to_string())),
         }
 
-        if let Some(details) = details.as_ref() {
-            dbg.insert(&entry.id, details.clone());
-            if details != &Value::String("Done".to_string()) {
-                frm.insert(&entry.id, details.clone());
+        if entry.requires_authentication {
+            match request::<SetContestantRequest, Contestant>(
+                "https://gleam.io/set-contestant",
+                Method::Post(SetContestantRequest {
+                    additional_details: true,
+                    campaign_key: giveaway.campaign.key.clone(),
+                    contestant: StoredContestant {
+                        competition_subscription: None,
+                        date_of_birth: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
+                        email: contestant.email.clone(),
+                        firstname: get_all_before(&contestant.name, " ").to_string(),
+                        lastname: get_all_after(&contestant.name, " ").to_string(),
+                        name: contestant.name.clone(),
+                        send_confirmation: false,
+                        stored_dob: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
+                    },
+                }),
+                HashMap::new(),
+                csrf,
+            )
+            .await
+            {
+                Ok(c) => contestant = c,
+                Err(e) => {
+                    err(format!("Failed to set contestant: {:?}", e));
+                    break;
+                },
             }
+        }
+
+        if let Some(timer) = entry.timer_action {
+            sleep(Duration::from_secs(timer + 7)).await;
+        }
+
+        if details.1 {
+            dbg.insert(&entry.id, details.0.clone());
+        }
+        if details.2 {
+            frm.insert(&entry.id, details.0.clone());
         }
         made_requests.push(&entry.id);
 
-        let body = json! {{
-            "dbg": dbg,
-            "details": details,
-            "emid": entry.id,
-            "f": fpr,
-            "frm": frm,
-            "grecaptcha_response": null,
-            "h": jsmd5(&format!("-{}-{}-{}-{}", contestant.id, entry.id, entry.entry_type, giveaway.campaign.key))
-        }};
+        let body = if details.0 != Value::Null {
+            json! ({
+                "dbg": dbg,
+                "details": details,
+                "emid": entry.id,
+                "f": fpr,
+                "frm": frm,
+                "grecaptcha_response": null,
+                "h": jsmd5(&format!("-{}-{}-{}-{}", contestant.id, entry.id, entry.entry_type, giveaway.campaign.key))
+            })
+        } else {
+            json! ({
+                "dbg": dbg,
+                "emid": entry.id,
+                "f": fpr,
+                "frm": frm,
+                "grecaptcha_response": null,
+                "h": jsmd5(&format!("-{}-{}-{}-{}", contestant.id, entry.id, entry.entry_type, giveaway.campaign.key))
+            })
+        };
         log!("request: {:?}", body);
 
         let rep = match request::<Value, EntryResponse>(
@@ -367,8 +472,8 @@ pub async fn run(
             Ok(response) => response,
             Err(e) => {
                 link.send_message(Msg::LogMessage(Message::Warning(format!(
-                    "Unexpected response to HTTP request: {:?}",
-                    e
+                    "Unexpected response to HTTP request: {:?} {}",
+                    e, entry.entry_type
                 ))));
                 next();
                 continue;
@@ -378,35 +483,6 @@ pub async fn run(
 
         match rep {
             EntryResponse::Error { error } => match error.as_str() {
-                "not_logged_in" => {
-                    match request::<SetContestantRequest, Contestant>(
-                        "https://gleam.io/set-contestant",
-                        Method::Post(SetContestantRequest {
-                            additional_details: true,
-                            campaign_key: giveaway.campaign.key.clone(),
-                            contestant: StoredContestant {
-                                competition_subscription: None,
-                                date_of_birth: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
-                                email: contestant.email.clone(),
-                                firstname: get_all_before(&contestant.name, " ").to_string(),
-                                lastname: get_all_after(&contestant.name, " ").to_string(),
-                                name: contestant.name.clone(),
-                                send_confirmation: false,
-                                stored_dob: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
-                            },
-                        }),
-                        HashMap::new(),
-                        csrf,
-                    )
-                    .await
-                    {
-                        Ok(c) => contestant = c,
-                        Err(e) => link.send_message(Msg::LogMessage(Message::Error(format!(
-                            "Unable to auto login: {:?}",
-                            e
-                        )))),
-                    }
-                }
                 "error_auth_expired" => {
                     link.send_message(Msg::LogMessage(Message::Error(format!(
                         "Gleam.io is unable to check the action. Please login to {}.",
@@ -420,21 +496,34 @@ pub async fn run(
                 )))),
             },
             EntryResponse::RefreshRequired {
-                require_campaign_refresh: b,
-            } => link.send_message(Msg::LogMessage(Message::Warning(format!(
-                "Reload required: {}",
-                b
-            )))),
+                require_campaign_refresh,
+            } => {
+                if require_campaign_refresh {
+                    return Err(Message::Danger("I'm sorry. The bot made a mistake. I think this kind of mistake may result in a fraud suspicion. You should stop using the bot for a little while.".to_string()))
+                }
+            },
             EntryResponse::AlreadyEntered { .. } => link.send_message(Msg::LogMessage(
                 Message::Warning("Already entered!".to_string()),
             )),
             EntryResponse::Success { worth, .. } => {
+                if entry.mandatory {
+                    completed_mandatory_entries += 1;
+                }
+                entries_number += worth;
+                link.send_message(Msg::LogMessage(Message::Info(format!(
+                    "{} worked!", entry.entry_type
+                ))));
                 settings.borrow_mut().total_entries += worth;
                 settings.borrow().save();
             },
             EntryResponse::BotSpotted { cheater } => {
                 if cheater {
-                    return Err(Message::Danger("Gleam.io says you are creating too many entries. Shutting down.".to_string()))
+                    return Err(Message::Danger("I'm sorry. Gleam.io detected the bot. You should stop using it for a while. Your account may have been banned for a few weeks.".to_string()))
+                }
+            }
+            EntryResponse::IpBan { ip_ban } => {
+                if ip_ban {
+                    return Err(Message::Danger("I'm sorry. Gleam.io banned your IP. There is nothing you can do.".to_string()))
                 }
             }
         }
