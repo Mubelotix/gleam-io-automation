@@ -120,7 +120,7 @@ pub async fn run(
         }
     };
     log!("contestant: {:#?}", init_contestant);
-    let mut contestant = init_contestant.contestant;
+    let contestant = init_contestant.contestant;
 
     let twitter_value = json! {{
         "twitter_username": settings.borrow().twitter_username,
@@ -159,6 +159,7 @@ pub async fn run(
     let mut completed_mandatory_entries: usize = 0;
     let mut entry_methods = Vec::new();
     let mut entries_number = 0;
+    let mut actions_number = 0;
     for entry in &giveaway.entry_methods {
         if entry.mandatory {
             entry_methods.insert(mandatory_entries, entry);
@@ -168,9 +169,15 @@ pub async fn run(
         }
     }
 
-    for idx in 0..entry_methods.len() {
-        let entry = &entry_methods[idx];
+    if giveaway.campaign.additional_contestant_details {
+        link.send_message(Msg::LogMessage(Message::Error(
+            "Unsupported giveaway. Just tell me one thing: does it requires you to enter contact info?".to_string()
+        )));
+        sleep(Duration::from_secs(5)).await;
+        panic!("");
+    }
 
+    for entry in entry_methods {
         if contestant.entered.contains_key(&entry.id) {
             log!("Already entered, skipping");
             next();
@@ -180,9 +187,9 @@ pub async fn run(
                 "Unable to try some entry methods because some mandatory entry methods were not successfully completed.".to_string()
             )));
             return Ok(())
-        } else if entry.actions_required > entries_number {
+        } else if entry.actions_required > actions_number {
             link.send_message(Msg::LogMessage(Message::Warning(
-                "Unable to try an entry method because it requires more entries first.".to_string()
+                "Unable to try an entry method because it requires more actions to be done.".to_string()
             )));
             next();
             continue;
@@ -322,8 +329,8 @@ pub async fn run(
                                 //details = Some(Value::String("Îmi pare rău, nu înțeleg ce ar trebui să scriu aici.".to_string()));
                                 testing("custom_action > visit > Some(\"VisitQuestion\")");
                             }
-                            Some("VisitAutoA") => {
-                                //details = Some(Value::String("V".to_string()));
+                            Some("VisitAuto") => {
+                                details = (Value::String("V".to_string()), false, false);
                                 testing("custom_action > visit > Some(\"VisitAuto\")");
                             }
                             Some("") => {
@@ -374,6 +381,10 @@ pub async fn run(
             "facebook_view_post" => {
                 details = (Value::Null, false, false);
             }
+            "youtube_enter" => {
+                details = (Value::Null, false, false);
+                testing("youtube_enter");
+            }
             "instagram_view_post" => {
                 details = (Value::String("Done".to_string()), true, false);
             }
@@ -394,7 +405,7 @@ pub async fn run(
             },
         }
 
-        if entry.requires_authentication {
+        /*if entry.requires_authentication {
             match request::<SetContestantRequest, Contestant>(
                 "https://gleam.io/set-contestant",
                 Method::Post(SetContestantRequest {
@@ -422,7 +433,7 @@ pub async fn run(
                     break;
                 },
             }
-        }
+        }*/
 
         if let Some(timer) = entry.timer_action {
             sleep(Duration::from_secs(timer + 7)).await;
@@ -489,11 +500,13 @@ pub async fn run(
                         entry.provider
                     ))))
                 }
-                error => link.send_message(Msg::LogMessage(Message::Error(format!(
+                error => {
+                    err(format!(
                     "An unknown error occured while trying get entries with the method {:?}: {:?}",
                     entry.entry_type,
-                    error
-                )))),
+                    error));
+                    break;
+                },
             },
             EntryResponse::RefreshRequired {
                 require_campaign_refresh,
@@ -510,6 +523,7 @@ pub async fn run(
                     completed_mandatory_entries += 1;
                 }
                 entries_number += worth;
+                actions_number += 1;
                 link.send_message(Msg::LogMessage(Message::Info(format!(
                     "{} worked!", entry.entry_type
                 ))));
