@@ -374,7 +374,7 @@ pub async fn run(
     for entry in entry_methods {
         log!("entry: {:#?}", entry);
 
-        #[cfg(not(feature = "skip"))]
+        #[cfg(not(feature = "norequest"))]
         if contestant.entered.contains_key(&entry.id) {
             log!("Already entered, skipping");
             next();
@@ -1009,38 +1009,8 @@ pub async fn run(
         }
 
         log!("Request: {} -> {:?}", entry.entry_type, details);
-        #[cfg(feature = "skip")]
+        #[cfg(feature = "norequest")]
         continue;
-
-        /*if entry.requires_authentication {
-            match request::<SetContestantRequest, Contestant>(
-                "https://gleam.io/set-contestant",
-                Method::Post(SetContestantRequest {
-                    additional_details: true,
-                    campaign_key: giveaway.campaign.key.clone(),
-                    contestant: StoredContestant {
-                        competition_subscription: None,
-                        date_of_birth: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
-                        email: contestant.email.clone(),
-                        firstname: get_all_before(&contestant.name, " ").to_string(),
-                        lastname: get_all_after(&contestant.name, " ").to_string(),
-                        name: contestant.name.clone(),
-                        send_confirmation: false,
-                        stored_dob: contestant.stored_dob.clone().unwrap_or_else(|| String::from("1950-01-01")),
-                    },
-                }),
-                HashMap::new(),
-                csrf,
-            )
-            .await
-            {
-                Ok(c) => contestant = c,
-                Err(e) => {
-                    err(format!("Failed to set contestant: {:?}", e));
-                    break;
-                },
-            }
-        }*/
 
         if let Some(timer) = entry.timer_action {
             sleep(Duration::from_secs(timer + 7)).await;
