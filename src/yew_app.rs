@@ -63,6 +63,7 @@ impl Component for Model {
             Msg::SettingsUpdate(name, value) => {
                 match name {
                     "twitter_username" => self.settings.borrow_mut().twitter_username = value,
+                    "text_input_sentence" => self.settings.borrow_mut().text_input_sentence = value,
                     name => panic!("No field with the name {}", name),
                 }
                 self.settings.borrow().save();
@@ -151,9 +152,17 @@ impl Component for Model {
                 let settings = self.settings.borrow();
                 html! {
                     <div>
-                        <label>
+                        <label class="setting">
                             {"Your Twitter username: "}
-                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="jack" oninput=self.link.callback(|e: InputData| Msg::SettingsUpdate("twitter_username", e.value)) value=settings.twitter_username/>
+                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="jack" oninput=self.link.callback(|e: InputData| Msg::SettingsUpdate("twitter_username", e.value)) value=settings.twitter_username/><br/>
+                            <span class="explanation">{ "Your Twitter username without the '@'. You must be connected to this account on this browser." }</span>
+                        </label><br/>
+
+                        <label class="setting">
+                            {"Text input sentence: "}
+                            <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="I don't understand" oninput=self.link.callback(|e: InputData| Msg::SettingsUpdate("text_input_sentence", e.value)) value=settings.text_input_sentence/>
+                            <br/>
+                            <span class="explanation">{ "Sometimes, gleam.io is asking for a text input from the user. The questions asked to the user are determined by the competition owner, so it cannot be automated without an artificial intelligence. To bypass this limitation, the bot is programmed to answer with a generic sentence that could match to any question. By default, this is something like \"I don't understand\" translated in an uncommon language. The problem is that if everyone is using the default value, it will be very easy for gleam.io to detect the bot and ban you. So I recommend using your own unique sentence." }</span>
                         </label><br/>
 
                         <div class="setting">

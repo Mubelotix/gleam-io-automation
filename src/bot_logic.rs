@@ -670,7 +670,7 @@ pub async fn run(
                     Lacks,
                     [
                         IsNotEmpty,
-                        IsNotEmpty,
+                        Or(Box::new(IsNotEmpty), Box::new(Lacks)),
                         Lacks,
                         Is("Off"),
                         Lacks,
@@ -839,7 +839,7 @@ pub async fn run(
                         IsUrl,
                         IsNotEmpty,
                         Is("post"),
-                        Is("1"),
+                        IsNumber,
                         Lacks,
                         Lacks,
                         Lacks,
