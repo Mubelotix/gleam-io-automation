@@ -1023,7 +1023,7 @@ pub async fn run(
         let body = if details.0 != Value::Null {
             json! ({
                 "dbg": dbg,
-                "details": details,
+                "details": details.0,
                 "emid": entry.id,
                 "f": fpr,
                 "frm": frm,
