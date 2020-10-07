@@ -9,6 +9,7 @@ mod checkbox;
 mod format;
 mod messages;
 mod request;
+mod settings;
 mod yew_app;
 use yew::prelude::App;
 use yew_app::*;

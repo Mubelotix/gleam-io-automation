@@ -1,10 +1,5 @@
-use crate::checkbox::*;
-use crate::{
-    bot_logic::{run, Settings},
-    messages::Message,
-};
-use std::cell::RefCell;
-use std::rc::Rc;
+use crate::{bot_logic::run, checkbox::*, messages::Message, settings::Settings};
+use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen_futures::*;
 use yew::prelude::*;
 

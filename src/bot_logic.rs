@@ -1,19 +1,17 @@
-use crate::format::*;
-use crate::request::*;
-use crate::util::*;
 use crate::{
-    messages::Message,
+    format::*,
+    messages::{Message, Message::*},
+    request::*,
+    settings::*,
+    util::*,
     yew_app::{Model, Msg},
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::time::Duration;
+use serde_json::{from_str, json, Value};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 use string_tools::*;
 use web_sys::window;
 use yew::prelude::*;
+use Arg::*;
 
 fn get_fraud() -> String {
     js_sys::eval("fraudService.hashedFraud()")
@@ -27,36 +25,6 @@ fn jsmd5(input: &str) -> String {
         .unwrap()
         .as_string()
         .unwrap()
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    pub twitter_username: String,
-    pub total_entries: usize,
-    pub ban_unknown_methods: bool,
-    pub auto_follow_twitter: bool,
-    pub auto_retweet: bool,
-    pub auto_tweet: bool,
-    pub auto_email_subscribe: bool,
-    pub text_input_sentence: String,
-}
-
-impl std::default::Default for Settings {
-    fn default() -> Settings {
-        Settings {
-            twitter_username: String::new(),
-            total_entries: 0,
-            ban_unknown_methods: true,
-            auto_follow_twitter: false,
-            auto_retweet: false,
-            auto_tweet: false,
-            auto_email_subscribe: false,
-            text_input_sentence: String::from(
-                "Îmi pare rău, nu înțeleg ce ar trebui să scriu aici.",
-            ),
-        }
-    }
 }
 
 #[allow(dead_code)]
@@ -217,23 +185,6 @@ impl<'a> Verifyer<'a> {
     }
 }
 
-impl Settings {
-    pub fn save(&self) {
-        let storage = window().unwrap().local_storage().unwrap().unwrap();
-        storage
-            .set("gleam_bot_settings", &serde_json::to_string(&self).unwrap())
-            .unwrap();
-    }
-
-    pub fn load() -> Settings {
-        let storage = window().unwrap().local_storage().unwrap().unwrap();
-        match storage.get("gleam_bot_settings").ok().flatten() {
-            Some(value) => serde_json::from_str(&value).unwrap_or_default(),
-            None => Settings::default(),
-        }
-    }
-}
-
 pub async fn run(
     link: Rc<ComponentLink<Model>>,
     settings: Rc<RefCell<Settings>>,
@@ -242,94 +193,44 @@ pub async fn run(
     let location = window.location();
     let href = location.href().unwrap();
 
-    let main_page = request_str::<()>(&href, Method::Get, HashMap::new(), "")
-        .await
-        .unwrap();
-
-    log!("{}", main_page);
+    // Load the giveaway and initialize data
+    let main_page = request_str::<()>(&href, Method::Get, "").await.unwrap();
     let fpr = get_fraud();
-    log!("{}", fpr);
-
-    let text = main_page;
     let csrf =
-        string_tools::get_all_between_strict(&text, "<meta name=\"csrf-token\" content=\"", "\"")
-            .unwrap();
-    let json =
-        string_tools::get_all_between_strict(&text, " ng-init='initCampaign(", ")'>").unwrap();
-    let json = json.replace("&quot;", "\"");
-    let giveaway = match serde_json::from_str::<Giveaway>(&json) {
-        Ok(g) => g,
-        Err(e) => {
-            elog!("e {:?}", e);
-            panic!("{}", &json[e.column() - 10..]);
-        }
-    };
-    log!("giveaway: {:#?}", giveaway);
+        get_all_between_strict(&main_page, "<meta name=\"csrf-token\" content=\"", "\"").unwrap();
 
-    let json =
-        string_tools::get_all_between_strict(&text, " ng-init='initContestant(", ");").unwrap();
-    let json = json.replace("&quot;", "\"");
-    let init_contestant = match serde_json::from_str::<InitContestant>(&json) {
+    // Get the giveaway object
+    let giveaway_json = get_all_between_strict(&main_page, " ng-init='initCampaign(", ")'>")
+        .unwrap()
+        .replace("&quot;", "\"");
+    let giveaway = match from_str::<Giveaway>(&giveaway_json) {
         Ok(g) => g,
         Err(e) => {
-            elog!("e {:?} in {}", e, json);
-            panic!("{}", &json[e.column() - 10..]);
+            return Err(Error(format!(
+                "Failed to parse giveaway {}: {:?}.",
+                giveaway_json, e
+            )))
         }
     };
-    log!("contestant: {:#?}", init_contestant);
+    log!("Giveaway: {:#?}", giveaway);
+
+    // Get the contestant object
+    let contestant_json = get_all_between_strict(&main_page, " ng-init='initContestant(", ");")
+        .unwrap()
+        .replace("&quot;", "\"");
+    let init_contestant = match from_str::<InitContestant>(&contestant_json) {
+        Ok(g) => g,
+        Err(e) => {
+            return Err(Error(format!(
+                "Failed to parse contestant {}: {:?}.",
+                contestant_json, e
+            )))
+        }
+    };
+    log!("Contestant: {:#?}", init_contestant);
     let mut contestant = init_contestant.contestant;
 
-    {
-        let settings = settings.borrow();
-        if settings.twitter_username.is_empty()
-            && (settings.auto_retweet || settings.auto_tweet || settings.auto_follow_twitter)
-        {
-            link.send_message(Msg::LogMessage(Message::Warning(
-                "Please specify your Twitter username in the settings.".to_string(),
-            )));
-        }
-    }
-    let twitter_value = json! {{
-        "twitter_username": settings.borrow().twitter_username,
-    }};
-
-    let current: RefCell<f32> = RefCell::new(0.0);
-    let len = giveaway.entry_methods.len() as f32;
-
-    let next = || {
-        use std::ops::AddAssign;
-        current.borrow_mut().add_assign(1.0);
-        link.send_message(Msg::ProgressChange(
-            ((100.0 / len) * *current.borrow()).floor() as usize,
-        ));
-    };
-
-    let err = |e: String| {
-        use std::ops::AddAssign;
-        link.send_message(Msg::LogMessage(Message::Error(e)));
-        current.borrow_mut().add_assign(1.0);
-        link.send_message(Msg::ProgressChange(
-            ((100.0 / len) * *current.borrow()).floor() as usize,
-        ));
-    };
-
-    let mut made_requests: Vec<&String> = Vec::new();
-    let mut mandatory_entries: usize = 0;
-    let mut completed_mandatory_entries: usize = 0;
-    let mut entry_methods = Vec::new();
-    let mut actions_number = 0;
-    for entry in &giveaway.entry_methods {
-        if entry.mandatory {
-            entry_methods.insert(mandatory_entries, entry);
-            mandatory_entries += 1;
-            if contestant.entered.contains_key(&entry.id) {
-                completed_mandatory_entries += 1;
-            }
-        } else {
-            entry_methods.push(entry);
-        }
-    }
-
+    // Update the contestant if needed
     if giveaway.campaign.additional_contestant_details {
         match request::<SetContestantRequest, SetContestantResponse>(
             "https://gleam.io/set-contestant",
@@ -353,72 +254,120 @@ pub async fn run(
                         .unwrap_or_else(|| String::from("1950-01-01")),
                 },
             }),
-            HashMap::new(),
             csrf,
         )
         .await
         {
             Ok(c) => contestant = c.contestant,
             Err(e) => {
-                err(format!("Failed to set contestant: {:?}", e));
-                panic!("");
+                return Err(Error(format!("Failed to set contestant: {:?}", e)));
             }
         }
     }
 
+    // Initialize variables
+    let twitter_value = json! ({
+        "twitter_username": settings.borrow().twitter_username,
+    });
+    let current: RefCell<f32> = RefCell::new(0.0);
+    let len = giveaway.entry_methods.len() as f32;
+    let mut made_requests: Vec<&String> = Vec::new();
+    let mut completed_mandatory_entries: usize = 0;
+    let mut actions_number = 0;
+
+    // Order the entries
+    let mut mandatory_entries: usize = 0;
+    let mut entry_methods = Vec::new();
+    for entry in &giveaway.entry_methods {
+        if entry.mandatory {
+            entry_methods.insert(mandatory_entries, entry);
+            mandatory_entries += 1;
+            if contestant.entered.contains_key(&entry.id) {
+                completed_mandatory_entries += 1;
+            }
+        } else {
+            entry_methods.push(entry);
+        }
+    }
+
+    // Get the linked accounts
     let mut auths = HashMap::new();
     for authentification in &contestant.authentications {
         auths.insert(authentification.provider.as_str(), authentification.expired);
     }
 
-    for entry in entry_methods {
-        log!("entry: {:#?}", entry);
+    // Create a closure to update the progress bar
+    let next = || {
+        use std::ops::AddAssign;
+        current.borrow_mut().add_assign(1.0);
+        link.send_message(Msg::ProgressChange(
+            ((100.0 / len) * *current.borrow()).floor() as usize,
+        ));
+    };
 
+    // Create a closure displaying a message
+    let notify = |m: Message<String>| {
+        link.send_message(Msg::LogMessage(m));
+    };
+
+    // Create a closure updating the progress bar and displaying an error message
+    let err_next = |e: String| {
+        elog!("ERROR: {}", e);
+        use std::ops::AddAssign;
+        notify(Error(e));
+        current.borrow_mut().add_assign(1.0);
+        link.send_message(Msg::ProgressChange(
+            ((100.0 / len) * *current.borrow()).floor() as usize,
+        ));
+    };
+
+    // Create a closure displaying a warning
+    let warn = |m: &'static str| {
+        log!("Warning: {}", m);
+        link.send_message(Msg::LogMessage(Warning(m.to_string())));
+    };
+
+    // Check settings and display warnings
+    {
+        let settings = settings.borrow();
+        if settings.twitter_username.is_empty()
+            && (settings.auto_retweet || settings.auto_tweet || settings.auto_follow_twitter)
+        {
+            warn("Please specify your Twitter username in the settings.");
+        }
+
+        if settings.text_input_sentence.is_empty() {
+            warn("Please specify a default \"text input\" value in the settings.");
+        }
+    }
+
+    // Iterate on entries and validate them
+    for entry in entry_methods {
+        log!("Entry: {:#?}", entry);
+
+        // Check if we can validate this entry
         #[cfg(not(feature = "norequest"))]
         if contestant.entered.contains_key(&entry.id) {
             log!("Already entered, skipping");
             next();
             continue;
         } else if !entry.mandatory && completed_mandatory_entries < mandatory_entries {
-            link.send_message(Msg::LogMessage(Message::Warning(
-                "Unable to try some entry methods because some mandatory entry methods were not successfully completed.".to_string()
-            )));
+            warn("Unable to try some entry methods because some mandatory entry methods were not successfully completed.");
             return Ok(());
         } else if entry.actions_required > actions_number {
-            link.send_message(Msg::LogMessage(Message::Warning(
-                "Unable to try an entry method because it requires more actions to be done."
-                    .to_string(),
-            )));
+            warn("Unable to try an entry method because it requires more actions to be done.");
             next();
             continue;
         }
 
-        let mut dbg: HashMap<&String, Value> = HashMap::new();
-        for made_request in &made_requests {
-            dbg.insert(made_request, Value::Null);
-        }
-        let mut frm = dbg.clone();
-        for idx in 0..giveaway.entry_methods.len() {
-            let entry = &giveaway.entry_methods[idx];
-            if entry.requires_details {
-                #[allow(clippy::single_match)]
-                match entry.provider.as_str() {
-                    "twitter" => {
-                        frm.insert(&entry.id, twitter_value.clone());
-                    }
-                    _ => (),
-                }
-            }
-        }
-
-        use Arg::*;
+        // Generate a the root of a validation request
         let details: (Value, bool, bool) = match entry.entry_type.as_str() {
             "twitter_follow" => {
                 if settings.borrow().auto_follow_twitter {
                     let username = match &entry.config1 {
                         Some(username) => username,
                         None => {
-                            err("Invalid twitter entry method 00".to_string());
+                            err_next("Invalid twitter entry method 00".to_string());
                             continue;
                         }
                     };
@@ -429,11 +378,10 @@ pub async fn run(
                     );
     
                     if let Err(e) = window.open_with_url(&url) {
-                        link.send_message(Msg::LogMessage(Message::Error(format!(
+                        err_next(format!(
                             "Failed to open a new window: {:?}",
                             e
-                        ))));
-                        next();
+                        ));
                         continue;
                     } else {
                         sleep(Duration::from_secs(15)).await;
@@ -450,7 +398,7 @@ pub async fn run(
                     let url = match &entry.config1 {
                         Some(url) => url,
                         None => {
-                            err("Invalid twitter entry method 01".to_string());
+                            err_next("Invalid twitter entry method 01".to_string());
                             continue;
                         }
                     };
@@ -458,7 +406,7 @@ pub async fn run(
                     let id = match get_all_after_strict(&url, "/status/") {
                         Some(id) => id,
                         None => {
-                            err("Invalid twitter entry method 02".to_string());
+                            err_next("Invalid twitter entry method 02".to_string());
                             continue;
                         }
                     };
@@ -469,11 +417,10 @@ pub async fn run(
                     );
     
                     if let Err(e) = window.open_with_url(&url) {
-                        link.send_message(Msg::LogMessage(Message::Error(format!(
+                        err_next(format!(
                             "Failed to open a new window: {:?}",
                             e
-                        ))));
-                        next();
+                        ));
                         continue;
                     }
     
@@ -489,7 +436,7 @@ pub async fn run(
                     let text = match &entry.config1 {
                         Some(text) => text,
                         None => {
-                            err("Invalid twitter entry method 03".to_string());
+                            err_next("Invalid twitter entry method 03".to_string());
                             continue;
                         }
                     };
@@ -500,11 +447,10 @@ pub async fn run(
                     );
                     
                     if let Err(e) = window.open_with_url(&url) {
-                        link.send_message(Msg::LogMessage(Message::Error(format!(
+                        err_next(format!(
                             "Failed to open a new window: {:?}",
                             e
-                        ))));
-                        next();
+                        ));
                         continue;
                     }
     
@@ -791,18 +737,12 @@ pub async fn run(
                 match auths.get("instagram") {
                     Some(false) => (Value::Null, false, false),
                     Some(true) => {
-                        link.send_message(Msg::LogMessage(Message::Warning(
-                            "Your authentification to Instagram has expired. Please login again to get more entries."
-                                .to_string(),
-                        )));
+                        warn("Your authentification to Instagram has expired. Please login again to get more entries.");
                         next();
                         continue;
                     },
                     None => {
-                        link.send_message(Msg::LogMessage(Message::Warning(
-                            "You did not connect any instagram account to gleam.io. Please connect an instagram account to get more entries."
-                                .to_string(),
-                        )));
+                        warn("You did not link any Instagram account to gleam.io. Please connect an Instagram account to get more entries.");
                         next();
                         continue;
                     }
@@ -940,6 +880,40 @@ pub async fn run(
             {
                 (Value::String("V".to_string()), false, false)
             }
+            "youtube_enter" 
+                if Verifyer::new(
+                    Lacks,
+                    IsEmpty,
+                    Lacks,
+                    [
+                        IsNotEmpty,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        IsEmpty,
+                    ],
+                )
+                .matches(entry)
+                .is_ok() =>
+            {
+                match auths.get("youtube") {
+                    Some(false) => (Value::Null, false, false),
+                    Some(true) => {
+                        warn("Your authentification to Youtube has expired. Please login again to get more entries.");
+                        next();
+                        continue;
+                    },
+                    None => {
+                        warn("You did not link any Youtube account to gleam.io. Please connect a Youtube account to get more entries.");
+                        next();
+                        continue;
+                    }
+                }
+            }
             "twitchtv_follow" 
                 if Verifyer::new(
                     Lacks,
@@ -985,37 +959,58 @@ pub async fn run(
                 (Value::Null, false, false)
             }
             entry_type => {
-                log!("unknown entry method");
+                log!("Unknown entry method:\n\tworkflow: {:?}\n\ttemplate: {:?}\n\tmethod_type: {:?}\n\tconfigs: [{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?}]", entry.workflow, entry.template, entry.method_type, entry.config1, entry.config2, entry.config3, entry.config4, entry.config5, entry.config6, entry.config7, entry.config8, entry.config9);
                 if settings.borrow().ban_unknown_methods {
-                    link.send_message(Msg::LogMessage(Message::Warning(format!(
+                    notify(Warning(format!(
                         "Unsupported entry type: {:?}. Action skipped. You may contact me to request the support of this entry type.",
                         entry_type
-                    ))));
+                    )));
                     next();
                     continue;
                 } else {
-                    link.send_message(Msg::LogMessage(Message::Warning(format!(
+                    notify(Warning(format!(
                         "Encountered an unknown entry type: {:?}. The bot will try to enter (since it is enabled in the settings). However, it will likely cause errors that will help gleam.io to detect the bot.",
                         entry_type
-                    ))));
+                    )));
                     (Value::String("V".to_string()), false, false)
                 }
             }
         };
 
+        // Check if we are not going to send an invalid request
         if entry.requires_details && details.0 == Value::Null {
-            err("Null found but expected value".to_string());
+            err_next("Null found but expected value".to_string());
             continue;
         }
-
         log!("Request: {} -> {:?}", entry.entry_type, details);
-        #[cfg(feature = "norequest")]
-        continue;
 
+        // Sleep the required time
         if let Some(timer) = entry.timer_action {
             sleep(Duration::from_secs(timer + 7)).await;
         }
 
+        // Avoid sending the request on testing environnement
+        #[cfg(feature = "norequest")]
+        continue;
+
+        // Generate remaining parts of the request
+        let mut dbg: HashMap<&String, Value> = HashMap::new();
+        for made_request in &made_requests {
+            dbg.insert(made_request, Value::Null);
+        }
+        let mut frm = dbg.clone();
+        for idx in 0..giveaway.entry_methods.len() {
+            let entry = &giveaway.entry_methods[idx];
+            if entry.requires_details {
+                #[allow(clippy::single_match)]
+                match entry.provider.as_str() {
+                    "twitter" => {
+                        frm.insert(&entry.id, twitter_value.clone());
+                    }
+                    _ => (),
+                }
+            }
+        }
         if details.1 {
             dbg.insert(&entry.id, details.0.clone());
         }
@@ -1024,6 +1019,7 @@ pub async fn run(
         }
         made_requests.push(&entry.id);
 
+        // Build the body of the request
         let body = if details.0 != Value::Null {
             json! ({
                 "dbg": dbg,
@@ -1045,42 +1041,39 @@ pub async fn run(
             })
         };
 
-        let rep = match request::<Value, EntryResponse>(
+        // Send the request
+        let response = match request::<Value, EntryResponse>(
             &format!(
                 "https://gleam.io/enter/{}/{}",
                 giveaway.campaign.key, entry.id
             ),
             Method::Post(body),
-            HashMap::new(),
             csrf,
         )
         .await
         {
-            Ok(response) => response,
-            Err(e) => {
-                link.send_message(Msg::LogMessage(Message::Warning(format!(
-                    "Unexpected response to HTTP request: {:?} {}",
-                    e, entry.entry_type
-                ))));
-                next();
-                continue;
+            Ok(response) => {
+                log!("Response: {:?}", response);
+                response
             }
+            Err(()) => return Err(Error("Invalid response to HTTP request!".to_string())),
         };
-        log!("Response: {:?}", rep);
 
-        match rep {
+        // Check the result
+        match response {
             EntryResponse::Error { error } => match error.as_str() {
                 "error_auth_expired" => {
-                    link.send_message(Msg::LogMessage(Message::Error(format!(
+                    notify(Error(format!(
                         "Gleam.io is unable to check the action. Please login to {}.",
                         entry.provider
-                    ))))
+                    )));
                 }
                 error => {
-                    err(format!(
-                    "An unknown error occured while trying get entries with the method {:?}: {:?}",
-                    entry.entry_type,
-                    error));
+                    err_next(format!(
+                        "An unknown error occured while trying get entries with the method {:?}: {:?}",
+                        entry.entry_type,
+                        error
+                    ));
                     break;
                 }
             },
@@ -1088,12 +1081,12 @@ pub async fn run(
                 require_campaign_refresh,
             } => {
                 if require_campaign_refresh {
-                    return Err(Message::Danger("I'm sorry. The bot made a mistake. I think this kind of mistake may result in a fraud suspicion. You should stop using the bot for a little while.".to_string()));
+                    return Err(Danger("I'm sorry. The bot made a mistake. I think this kind of mistake may result in a fraud suspicion. You should stop using the bot for a little while.".to_string()));
                 }
             }
-            EntryResponse::AlreadyEntered { .. } => link.send_message(Msg::LogMessage(
-                Message::Warning("Already entered!".to_string()),
-            )),
+            EntryResponse::AlreadyEntered { .. } => warn(
+                "Gleam.io says you have already entered, but they are highly unlikely to be right.",
+            ),
             EntryResponse::Success { worth, .. } => {
                 if entry.mandatory {
                     completed_mandatory_entries += 1;
@@ -1104,29 +1097,23 @@ pub async fn run(
             }
             EntryResponse::BotSpotted { cheater } => {
                 if cheater {
-                    return Err(Message::Danger("I'm sorry. Gleam.io detected the bot. You should stop using it for a while. Your account may have been banned for a few weeks.".to_string()));
+                    return Err(Danger("I'm sorry. Gleam.io says you are a cheater. You should stop using the bot for a while. Your account may have been banned for a few weeks. If the problem persists, try changing your ip (use your 4g) and your account.".to_string()));
                 }
             }
             EntryResponse::IpBan { ip_ban } => {
                 if ip_ban {
-                    return Err(Message::Danger(
-                        "I'm sorry. Gleam.io banned your IP. There is nothing you can do."
+                    return Err(Danger(
+                        "I'm sorry. Gleam.io banned your IP. There is nothing you can do. If you are using a VPN, don't."
                             .to_string(),
                     ));
                 }
             }
         }
 
-        if frm.get(&entry.id).is_none() {
-            frm.insert(&entry.id, json! {null});
-        }
-        dbg.insert(&entry.id, json! {null});
-
         next();
         sleep(Duration::from_secs(7)).await;
     }
 
     link.send_message(Msg::Done);
-
     Ok(())
 }

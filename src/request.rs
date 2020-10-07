@@ -1,5 +1,4 @@
 use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -40,7 +39,6 @@ impl<T: Serialize> Method<T> {
 pub async fn request_str<T: Serialize>(
     url: &str,
     method: Method<T>,
-    headers: HashMap<String, String>,
     csrf: &str,
 ) -> Result<String, ()> {
     let document: HtmlDocument = window().unwrap().document().unwrap().dyn_into().unwrap();
@@ -48,9 +46,6 @@ pub async fn request_str<T: Serialize>(
     let xsrf = string_tools::get_all_between(&cookies, "; XSRF-TOKEN=", ";");
 
     let hdrs = Headers::new().unwrap();
-    for (name, value) in headers {
-        hdrs.append(&name, &value).unwrap();
-    }
     hdrs.append("x-xsrf-token", xsrf).unwrap();
     if !csrf.is_empty() {
         hdrs.append("x-csrf-token", csrf).unwrap();
@@ -102,10 +97,9 @@ pub async fn request_str<T: Serialize>(
 pub async fn request<T: Serialize, V: DeserializeOwned>(
     url: &str,
     method: Method<T>,
-    headers: HashMap<String, String>,
     csrf: &str,
 ) -> Result<V, ()> {
-    let text = request_str(url, method, headers, csrf).await?;
+    let text = request_str(url, method, csrf).await?;
 
     let value = match serde_json::from_str::<V>(&text) {
         Ok(value) => value,
