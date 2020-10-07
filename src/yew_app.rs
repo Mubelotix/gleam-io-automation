@@ -1,10 +1,10 @@
+use crate::checkbox::*;
 use crate::{
     bot_logic::{run, Settings},
     messages::Message,
 };
-use crate::checkbox::*;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 use wasm_bindgen_futures::*;
 use yew::prelude::*;
 
@@ -75,10 +75,17 @@ impl Component for Model {
             }
             Msg::CheckboxChange(name, value) => {
                 match name {
-                    CheckboxId::BanUnknownMethods => self.settings.borrow_mut().ban_unknown_methods = value,
-                    CheckboxId::TwitterFollow => self.settings.borrow_mut().auto_follow_twitter = value,
+                    CheckboxId::BanUnknownMethods => {
+                        self.settings.borrow_mut().ban_unknown_methods = value
+                    }
+                    CheckboxId::TwitterFollow => {
+                        self.settings.borrow_mut().auto_follow_twitter = value
+                    }
                     CheckboxId::TwitterRetweet => self.settings.borrow_mut().auto_retweet = value,
                     CheckboxId::TwitterTweet => self.settings.borrow_mut().auto_tweet = value,
+                    CheckboxId::EmailSubscribe => {
+                        self.settings.borrow_mut().auto_email_subscribe = value
+                    }
                 }
                 self.settings.borrow().save();
             }
@@ -149,10 +156,30 @@ impl Component for Model {
                             <input type="text" class="ng-pristine ng-untouched ng-valid ng-not-empty ng-valid-required ng-valid-pattern" placeholder="jack" oninput=self.link.callback(|e: InputData| Msg::SettingsUpdate("twitter_username", e.value)) value=settings.twitter_username/>
                         </label><br/>
 
-                        <Checkbox<CheckboxId> id=CheckboxId::BanUnknownMethods label="Ban unknown methods" onchange=&check_clbk checked=settings.ban_unknown_methods/>
-                        <Checkbox<CheckboxId> id=CheckboxId::TwitterFollow label="Follow on Twitter automatically" onchange=&check_clbk checked=settings.auto_follow_twitter/>
-                        <Checkbox<CheckboxId> id=CheckboxId::TwitterTweet label="Automate tweets" onchange=&check_clbk checked=settings.auto_tweet/>
-                        <Checkbox<CheckboxId> id=CheckboxId::TwitterRetweet label="Automate retweets" onchange=&check_clbk checked=settings.auto_retweet/>
+                        <div class="setting">
+                            <Checkbox<CheckboxId> id=CheckboxId::BanUnknownMethods label="Ban unknown methods (recommanded)" onchange=&check_clbk checked=settings.ban_unknown_methods/>
+                            <span class="explanation">{ "Disable unsupported entry methods. Some unsupported actions can be successfully completed. However, letting the bot try is likely to cause errors. Errors are used by gleam.io to detect bots. Enabling unsupported entry methods by unchecking this option may result in a ban." }</span>
+                        </div><br/>
+
+                        <div class="setting">
+                            <Checkbox<CheckboxId> id=CheckboxId::EmailSubscribe label="Subscribe to newsletters" onchange=&check_clbk checked=settings.auto_email_subscribe/>
+                            <span class="explanation">{ "Allow the bot to subscribe to newsletters with your email." }</span>
+                        </div><br/>
+
+                        <div class="setting">
+                            <Checkbox<CheckboxId> id=CheckboxId::TwitterFollow label="Follow on Twitter automatically" onchange=&check_clbk checked=settings.auto_follow_twitter/>
+                            <span class="explanation">{ "Allow the bot to follow people on Twitter with your account." }</span>
+                        </div><br/>
+
+                        <div class="setting">
+                            <Checkbox<CheckboxId> id=CheckboxId::TwitterTweet label="Automate tweets" onchange=&check_clbk checked=settings.auto_tweet/>
+                            <span class="explanation">{ "Allow the bot to tweet things with your account." }</span>
+                        </div><br/>
+
+                        <div class="setting">
+                            <Checkbox<CheckboxId> id=CheckboxId::TwitterRetweet label="Automate retweets" onchange=&check_clbk checked=settings.auto_retweet/>
+                            <span class="explanation">{ "Allow the bot to retweet with your account." }</span>
+                        </div><br/>
 
                         <button class="btn btn-primary ng-binding" onclick=self.link.callback(|e: _| Msg::ChangeTab(Tab::Main))>{"Save"}</button>
                     </div>

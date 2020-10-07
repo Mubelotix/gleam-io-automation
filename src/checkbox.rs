@@ -75,6 +75,7 @@ pub enum CheckboxId {
     TwitterFollow,
     TwitterTweet,
     TwitterRetweet,
+    EmailSubscribe,
 }
 
 impl Default for CheckboxId {

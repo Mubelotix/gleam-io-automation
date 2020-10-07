@@ -104,7 +104,7 @@ pub struct EntryMethod {
     pub iframe_url: Option<String>,
     pub iframe_type: Option<Value>,
     pub accepts_file_types: Option<Value>,
-    pub method_type: Option<Value>,
+    pub method_type: Option<String>,
     pub config_toggle: bool,
     pub interval_seconds: usize,
     pub next_interval_starts_at: usize,
@@ -153,23 +153,41 @@ pub struct Giveaway {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct Authentification {
+    pub expired: bool,
+    pub id: u64,
+    pub profile_url: Option<String>,
+    pub provider: String,
+    pub provider_type: String,
+    pub reference: Option<String>,
+    pub uid: String,
+    pub updated_at: String,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SetContestantResponse {
-    pub allow_recovery: bool,
-    pub require_other_login: Vec<String>,
+    pub contestant: Contestant,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ValidatedEntry {
+    c: usize,
+    t: u64,
+    ts: Value,
+    w: usize,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Contestant {
     pub auth_key: Option<String>,
-    #[serde(default)]
-    pub authentications: Vec<Value>,
-    #[serde(default)]
+    pub authentications: Vec<Authentification>,
     pub banned: bool,
     pub claims: Value,
     pub competition_subscription: Option<bool>,
     pub completed_details: bool,
     pub email: String,
-    pub entered: HashMap<String, Vec<Value>>,
+    pub entered: HashMap<String, Vec<ValidatedEntry>>,
     pub id: usize,
     pub name: String,
     pub share_key: String,

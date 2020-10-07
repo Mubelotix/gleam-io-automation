@@ -28,3 +28,6 @@ features = [
     "Crypto",
     "HtmlDocument",
 ]
+
+[features]
+skip = []

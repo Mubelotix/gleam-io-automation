@@ -77,3 +77,46 @@
     border-radius: 5px;
     white-space: pre-line;
 }
+
+.setting, .explanation {
+    all: initial;
+    font: 14px/17px "Open Sans", sans-serif;
+}
+
+.setting {
+    position: relative;
+    display: inline-block;
+    color: #666;
+}
+
+.setting .explanation {    
+    visibility: hidden;
+    width: max-content;
+    max-width: 300px;
+    background-color: #444;
+    color: #eee;
+    border-radius: 6px;
+    padding: 5px .9rem;
+    position: absolute;
+    z-index: 3;
+    bottom: 125%;
+    margin-left: 30px;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.setting .explanation::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 1rem;
+    margin-left: -6px;
+    border-width: 6px;
+    border-style: solid;
+    border-color: #333333 transparent transparent transparent;
+}
+  
+.setting:hover .explanation {
+    visibility: visible;
+    opacity: 1;
+}
