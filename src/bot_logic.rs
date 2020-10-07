@@ -59,6 +59,7 @@ impl std::default::Default for Settings {
     }
 }
 
+#[allow(dead_code)]
 pub enum Arg<'a> {
     IsNumber,
     IsExact(Option<&'a String>),
@@ -70,6 +71,7 @@ pub enum Arg<'a> {
     IsNotEmpty,
     Anything,
     IsUrl,
+    Or(Box<Arg<'a>>, Box<Arg<'a>>)
 }
 
 impl<'a> Arg<'a> {
@@ -142,6 +144,13 @@ impl<'a> Arg<'a> {
             }
             Arg::Anything => {
                 Ok(())
+            }
+            Arg::Or(c1, c2) => {
+                if c2.matches(value).is_ok() {
+                    Ok(())
+                } else {
+                    c1.matches(value)
+                }
             }
         }
     }
@@ -296,13 +305,6 @@ pub async fn run(
         ));
     };
 
-    let testing = |s: &'static str| {
-        link.send_message(Msg::LogMessage(Message::Info(format!(
-            "The bot tried a known entry method that has never been tested: {}. Did it work?",
-            s
-        ))));
-    };
-
     let mut made_requests: Vec<&String> = Vec::new();
     let mut mandatory_entries: usize = 0;
     let mut completed_mandatory_entries: usize = 0;
@@ -356,6 +358,11 @@ pub async fn run(
         }
     }
 
+    let mut auths = HashMap::new();
+    for authentification in &contestant.authentications {
+        auths.insert(authentification.provider.as_str(), authentification.expired);
+    }
+
     for entry in entry_methods {
         log!("entry: {:#?}", entry);
 
@@ -396,18 +403,14 @@ pub async fn run(
             }
         }
 
-        let mut details = (Value::Null, false, false);
         use Arg::*;
-        match entry.entry_type.as_str() {
-            "twitter_followA" => {
+        let details: (Value, bool, bool) = match entry.entry_type.as_str() {
+            "twitter_follow" => {
                 if settings.borrow().auto_follow_twitter {
                     let username = match &entry.config1 {
                         Some(username) => username,
                         None => {
-                            link.send_message(Msg::LogMessage(Message::Error(
-                                "Invalid gleam.io entry".to_string(),
-                            )));
-                            next();
+                            err("Invalid twitter entry method 00".to_string());
                             continue;
                         }
                     };
@@ -428,63 +431,77 @@ pub async fn run(
                         sleep(Duration::from_secs(15)).await;
                     }
 
-                //details = Some(twitter_value.clone());
+                    (twitter_value.clone(), true, true)
                 } else {
-                    link.send_message(Msg::LogMessage(Message::Info(
-                    "Skipped twitter follow in accordance to your settings. Consider enabling auto-follow to get more entries.".to_string()
-                )));
                     next();
                     continue;
                 }
             }
-            "twitter_retweetA" => {
+            "twitter_retweet" => {
                 if settings.borrow().auto_retweet {
-                    if let Some(config1) = &entry.config1 {
-                        if let Some(id) = get_all_after_strict(&config1, "/status/") {
-                            let url = format!(
-                                "https://twitter.com/intent/retweet?tweet_id={}&gleambot=true",
-                                id
-                            );
-                            if let Err(e) = window.open_with_url(&url) {
-                                link.send_message(Msg::LogMessage(Message::Error(format!(
-                                    "Failed to open a new window: {:?}",
-                                    e
-                                ))));
-                                next();
-                                continue;
-                            } else {
-                                sleep(Duration::from_secs(15)).await;
-                                //details = Some(twitter_value.clone());
-                            }
+                    let url = match &entry.config1 {
+                        Some(url) => url,
+                        None => {
+                            err("Invalid twitter entry method 01".to_string());
+                            continue;
                         }
+                    };
+
+                    let id = match get_all_after_strict(&url, "/status/") {
+                        Some(id) => id,
+                        None => {
+                            err("Invalid twitter entry method 02".to_string());
+                            continue;
+                        }
+                    };
+
+                    let url = format!(
+                        "https://twitter.com/intent/retweet?tweet_id={}&gleambot=true",
+                        id
+                    );
+
+                    if let Err(e) = window.open_with_url(&url) {
+                        link.send_message(Msg::LogMessage(Message::Error(format!(
+                            "Failed to open a new window: {:?}",
+                            e
+                        ))));
+                        next();
+                        continue;
                     }
+
+                    sleep(Duration::from_secs(15)).await;
+                    (twitter_value.clone(), true, true)
                 } else {
-                    link.send_message(Msg::LogMessage(Message::Info(
-                    "Skipped retweet in accordance to your settings. Consider enabling auto-retweet to get more entries.".to_string()
-                )));
                     next();
                     continue;
                 }
             }
-            "twitter_tweetA" => {
+            "twitter_tweet" => {
                 if settings.borrow().auto_tweet {
-                    if let Some(text) = &entry.config1 {
-                        let url = format!(
-                            "https://twitter.com/intent/tweet?text={}&gleambot=true",
-                            text
-                        );
-                        if let Err(e) = window.open_with_url(&url) {
-                            link.send_message(Msg::LogMessage(Message::Error(format!(
-                                "Failed to open a new window: {:?}",
-                                e
-                            ))));
-                            next();
+                    let text = match &entry.config1 {
+                        Some(text) => text,
+                        None => {
+                            err("Invalid twitter entry method 03".to_string());
                             continue;
-                        } else {
-                            sleep(Duration::from_secs(15)).await;
-                            //details = Some(twitter_value.clone());
                         }
+                    };
+                    
+                    let url = format!(
+                        "https://twitter.com/intent/tweet?text={}&gleambot=true",
+                        text
+                    );
+                    
+                    if let Err(e) = window.open_with_url(&url) {
+                        link.send_message(Msg::LogMessage(Message::Error(format!(
+                            "Failed to open a new window: {:?}",
+                            e
+                        ))));
+                        next();
+                        continue;
                     }
+
+                    sleep(Duration::from_secs(15)).await;
+                    (twitter_value.clone(), true, true)
                 } else {
                     link.send_message(Msg::LogMessage(Message::Info(
                     "Skipped tweet in accordance to your settings. Consider enabling auto-tweet to get more entries.".to_string()
@@ -530,11 +547,11 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() =>
             {
-                details = (
+                (
                     Value::String(settings.borrow().text_input_sentence.clone()),
                     true,
                     true,
-                );
+                )
             }
             "custom_action" // Blog comment
                 if Verifyer::new(
@@ -556,7 +573,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String(settings.borrow().text_input_sentence.clone()), true, true);
+                (Value::String(settings.borrow().text_input_sentence.clone()), true, true)
             }
             "custom_action" // Basic action
                 if Verifyer::new(
@@ -578,11 +595,11 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String("Done".to_string()), true, false);
+                (Value::String("Done".to_string()), true, false)
             }
             "custom_action" // Visit website
                 if Verifyer::new(
-                    IsEmpty,
+                    Or(Box::new(IsEmpty), Box::new(Is("VisitAuto"))),
                     Is("visit"),
                     Is("Use tracking"),
                     [
@@ -593,14 +610,14 @@ pub async fn run(
                         Lacks,
                         Is("simple"),
                         Lacks,
-                        Anything, // IsNotEmpty or Lacks
+                        Or(Box::new(IsNotEmpty), Box::new(Lacks)),
                         Lacks,
                     ],
                 )
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String("V".to_string()), false, false);
+                (Value::String("V".to_string()), false, false)
             }
             "custom_action" // Free bonus
                 if Verifyer::new(
@@ -622,7 +639,34 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::Null, false, false);
+                (Value::Null, false, false)
+            }
+            "email_subscribe"
+                if Verifyer::new(
+                    Lacks,
+                    IsEmpty,
+                    Lacks,
+                    [
+                        IsNotEmpty,
+                        IsNotEmpty,
+                        Lacks,
+                        Is("Off"),
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                    ],
+                )
+                .matches(entry)
+                .is_ok() => 
+            {
+                if settings.borrow().auto_email_subscribe {
+                    (Value::Null, false, false)
+                } else {
+                    next();
+                    continue
+                }
             }
             "instagram_visit_profile"
                 if Verifyer::new(
@@ -635,7 +679,7 @@ pub async fn run(
                         IsNotEmpty,
                         Lacks,
                         Is("Complete"),
-                        Is("5"),
+                        IsNumber,
                         Lacks,
                         Lacks,
                         IsEmpty,
@@ -652,7 +696,7 @@ pub async fn run(
                         IsNotEmpty,
                         IsNotEmpty,
                         Is("Complete"),
-                        Is("5"),
+                        IsNumber,
                         Lacks,
                         Lacks,
                         IsEmpty,
@@ -661,7 +705,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String("V".to_string()), false, false);
+                (Value::String("V".to_string()), false, false)
             }
             "instagram_view_post"
                 if Verifyer::new(
@@ -700,7 +744,47 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String("Done".to_string()), true, false);
+                (Value::String("Done".to_string()), true, false)
+            }
+            "instagram_enter" 
+                if Verifyer::new(
+                    Lacks,
+                    IsEmpty,
+                    Lacks,
+                    [
+                        IsUrl,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        IsEmpty,
+                    ],
+                )
+                .matches(entry)
+                .is_ok() =>
+            {
+                match auths.get("instagram") {
+                    Some(false) => (Value::Null, false, false),
+                    Some(true) => {
+                        link.send_message(Msg::LogMessage(Message::Warning(
+                            "Your authentification to Instagram has expired. Please login again to get more entries."
+                                .to_string(),
+                        )));
+                        next();
+                        continue;
+                    },
+                    None => {
+                        link.send_message(Msg::LogMessage(Message::Warning(
+                            "You did not connect any instagram account to gleam.io. Please connect an instagram account to get more entries."
+                                .to_string(),
+                        )));
+                        next();
+                        continue;
+                    }
+                }
             }
             "facebook_visit"
                 if Verifyer::new(
@@ -713,7 +797,7 @@ pub async fn run(
                         IsNumber,
                         Is("Complete"),
                         Is("Complete"),
-                        Is("5"),
+                        IsNumber,
                         Lacks,
                         Lacks,
                         IsEmpty,
@@ -722,7 +806,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String("V".to_string()), false, false);
+                (Value::String("V".to_string()), false, false)
             }
             "facebook_view_post"
                 if Verifyer::new(
@@ -744,7 +828,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::Null, false, false);
+                (Value::Null, false, false)
             }
             "pinterest_visit"
                 if Verifyer::new(
@@ -755,7 +839,7 @@ pub async fn run(
                         IsNotEmpty,
                         Is("Complete"),
                         Is("Complete"),
-                        Is("5"),
+                        IsNumber,
                         Lacks,
                         Lacks,
                         Lacks,
@@ -766,7 +850,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String("V".to_string()), false, false); // todo verify and optionnal merge
+                (Value::String("V".to_string()), false, false) // todo verify and optionnal merge
             }
             "pinterest_visit"
                 if Verifyer::new(
@@ -777,7 +861,7 @@ pub async fn run(
                         IsNotEmpty,
                         Is("Follow"),
                         Is("Complete"),
-                        Is("5"),
+                        IsNumber,
                         Lacks,
                         Lacks,
                         Lacks,
@@ -788,7 +872,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() => 
             {
-                details = (Value::String("V".to_string()), true, false);
+                (Value::String("V".to_string()), true, false)
             }
             "facebook_visit"
                 if Verifyer::new(
@@ -798,7 +882,7 @@ pub async fn run(
                     [
                         IsNotEmpty,
                         IsNotEmpty,
-                        IsNumber,
+                        IsNotEmpty, // got a number once
                         Is("Like"),
                         Is("Complete"),
                         IsNumber,
@@ -810,7 +894,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() =>
             {
-                details = (Value::String("V".to_string()), true, false);
+                (Value::String("V".to_string()), true, false)
             }
             "youtube_visit_channel" 
                 if Verifyer::new(
@@ -821,7 +905,7 @@ pub async fn run(
                         IsNotEmpty,
                         Anything,
                         Is("Complete"),
-                        Is("5"),
+                        IsNumber,
                         Lacks,
                         Lacks,
                         Lacks,
@@ -832,7 +916,7 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() =>
             {
-                details = (Value::String("V".to_string()), false, false);
+                (Value::String("V".to_string()), false, false)
             }
             "twitchtv_follow" 
                 if Verifyer::new(
@@ -854,7 +938,29 @@ pub async fn run(
                 .matches(entry)
                 .is_ok() =>
             {
-                details = (Value::Null, false, false);
+                (Value::Null, false, false)
+            }
+            "twitchtv_enter" 
+                if Verifyer::new(
+                    Lacks,
+                    IsEmpty,
+                    Lacks,
+                    [
+                        IsNotEmpty,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        Lacks,
+                        IsEmpty,
+                    ],
+                )
+                .matches(entry)
+                .is_ok() =>
+            {
+                (Value::Null, false, false)
             }
             entry_type => {
                 log!("unknown entry method");
@@ -870,14 +976,14 @@ pub async fn run(
                         "Encountered an unknown entry type: {:?}. The bot will try to enter (since it is enabled in the settings). However, it will likely cause errors that will help gleam.io to detect the bot.",
                         entry_type
                     ))));
-                    details = (Value::String("V".to_string()), false, false)
+                    (Value::String("V".to_string()), false, false)
                 }
             }
-        }
+        };
 
         if entry.requires_details && details.0 == Value::Null {
             err("Null found but expected value".to_string());
-            details.0 = Value::String("V".to_string());
+            continue;
         }
 
         log!("Request: {} -> {:?}", entry.entry_type, details);

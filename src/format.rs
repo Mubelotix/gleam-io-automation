@@ -154,11 +154,12 @@ pub struct Giveaway {
 
 #[derive(Debug, Deserialize)]
 pub struct Authentification {
+    #[serde(default)]
     pub expired: bool,
     pub id: u64,
     pub profile_url: Option<String>,
     pub provider: String,
-    pub provider_type: String,
+    pub provider_type: Option<String>,
     pub reference: Option<String>,
     pub uid: String,
     pub updated_at: String,
