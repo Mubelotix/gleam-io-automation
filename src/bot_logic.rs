@@ -71,7 +71,7 @@ pub enum Arg<'a> {
     IsNotEmpty,
     Anything,
     IsUrl,
-    Or(Box<Arg<'a>>, Box<Arg<'a>>)
+    Or(Box<Arg<'a>>, Box<Arg<'a>>),
 }
 
 impl<'a> Arg<'a> {
@@ -142,9 +142,7 @@ impl<'a> Arg<'a> {
                     Err("Expected a specific value, got something else")
                 }
             }
-            Arg::Anything => {
-                Ok(())
-            }
+            Arg::Anything => Ok(()),
             Arg::Or(c1, c2) => {
                 if c2.matches(value).is_ok() {
                     Ok(())
@@ -281,6 +279,16 @@ pub async fn run(
     log!("contestant: {:#?}", init_contestant);
     let mut contestant = init_contestant.contestant;
 
+    {
+        let settings = settings.borrow();
+        if settings.twitter_username.is_empty()
+            && (settings.auto_retweet || settings.auto_tweet || settings.auto_follow_twitter)
+        {
+            link.send_message(Msg::LogMessage(Message::Warning(
+                "Please specify your Twitter username in the settings.".to_string(),
+            )));
+        }
+    }
     let twitter_value = json! {{
         "twitter_username": settings.borrow().twitter_username,
     }};
@@ -414,12 +422,12 @@ pub async fn run(
                             continue;
                         }
                     };
-
+    
                     let url = format!(
                         "https://twitter.com/intent/follow?screen_name={}&gleambot=true",
                         username
                     );
-
+    
                     if let Err(e) = window.open_with_url(&url) {
                         link.send_message(Msg::LogMessage(Message::Error(format!(
                             "Failed to open a new window: {:?}",
@@ -430,7 +438,7 @@ pub async fn run(
                     } else {
                         sleep(Duration::from_secs(15)).await;
                     }
-
+    
                     (twitter_value.clone(), true, true)
                 } else {
                     next();
@@ -446,7 +454,7 @@ pub async fn run(
                             continue;
                         }
                     };
-
+    
                     let id = match get_all_after_strict(&url, "/status/") {
                         Some(id) => id,
                         None => {
@@ -454,12 +462,12 @@ pub async fn run(
                             continue;
                         }
                     };
-
+    
                     let url = format!(
                         "https://twitter.com/intent/retweet?tweet_id={}&gleambot=true",
                         id
                     );
-
+    
                     if let Err(e) = window.open_with_url(&url) {
                         link.send_message(Msg::LogMessage(Message::Error(format!(
                             "Failed to open a new window: {:?}",
@@ -468,7 +476,7 @@ pub async fn run(
                         next();
                         continue;
                     }
-
+    
                     sleep(Duration::from_secs(15)).await;
                     (twitter_value.clone(), true, true)
                 } else {
@@ -499,13 +507,10 @@ pub async fn run(
                         next();
                         continue;
                     }
-
+    
                     sleep(Duration::from_secs(15)).await;
                     (twitter_value.clone(), true, true)
                 } else {
-                    link.send_message(Msg::LogMessage(Message::Info(
-                    "Skipped tweet in accordance to your settings. Consider enabling auto-tweet to get more entries.".to_string()
-                )));
                     next();
                     continue;
                 }
@@ -545,7 +550,24 @@ pub async fn run(
                     ],
                 )
                 .matches(entry)
-                .is_ok() =>
+                .is_ok() || Verifyer::new(
+                    Is("VisitQuestion"),
+                    Is("visit"),
+                    Is("Allow question or tracking"),
+                    [
+                        IsNotEmpty,
+                        IsNotEmpty,
+                        IsNotEmpty,
+                        IsNotEmpty,
+                        Lacks,
+                        Is("simple"),
+                        Lacks,
+                        Or(Box::new(IsNotEmpty), Box::new(Lacks)),
+                        Lacks,
+                    ],
+                )
+                .matches(entry)
+                .is_ok() => 
             {
                 (
                     Value::String(settings.borrow().text_input_sentence.clone()),
