@@ -71,9 +71,6 @@ impl Component for Model {
             }
             Msg::CheckboxChange(name, value) => {
                 match name {
-                    CheckboxId::BanUnknownMethods => {
-                        self.settings.borrow_mut().ban_unknown_methods = value
-                    }
                     CheckboxId::TwitterFollow => {
                         self.settings.borrow_mut().auto_follow_twitter = value
                     }
@@ -159,11 +156,6 @@ impl Component for Model {
                             <br/>
                             <span class="explanation">{ "Sometimes, gleam.io is asking for a text input from the user. The questions asked to the user are determined by the competition owner, so it cannot be automated without an artificial intelligence. To bypass this limitation, the bot is programmed to answer with a generic sentence that could match to any question. By default, this is something like \"I don't understand\" translated in an uncommon language. The problem is that if everyone is using the default value, it will be very easy for gleam.io to detect the bot and ban you. So I recommend using your own unique sentence." }</span>
                         </label><br/>
-
-                        <div class="setting">
-                            <Checkbox<CheckboxId> id=CheckboxId::BanUnknownMethods label="Ban unknown methods (recommanded)" onchange=&check_clbk checked=settings.ban_unknown_methods/>
-                            <span class="explanation">{ "Disable unsupported entry methods. Some unsupported actions can be successfully completed. However, letting the bot try is likely to cause errors. Errors are used by gleam.io to detect bots. Enabling unsupported entry methods by unchecking this option may result in a ban." }</span>
-                        </div><br/>
 
                         <div class="setting">
                             <Checkbox<CheckboxId> id=CheckboxId::EmailSubscribe label="Subscribe to newsletters" onchange=&check_clbk checked=settings.auto_email_subscribe/>

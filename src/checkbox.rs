@@ -71,7 +71,6 @@ pub struct CheckboxProp<T: Clone + Default> {
 
 #[derive(Clone)]
 pub enum CheckboxId {
-    BanUnknownMethods,
     TwitterFollow,
     TwitterTweet,
     TwitterRetweet,
@@ -80,6 +79,6 @@ pub enum CheckboxId {
 
 impl Default for CheckboxId {
     fn default() -> CheckboxId {
-        CheckboxId::BanUnknownMethods
+        CheckboxId::TwitterTweet
     }
 }

@@ -7,7 +7,6 @@ use web_sys::window;
 pub struct Settings {
     pub twitter_username: String,
     pub total_entries: usize,
-    pub ban_unknown_methods: bool,
     pub auto_follow_twitter: bool,
     pub auto_retweet: bool,
     pub auto_tweet: bool,
@@ -20,7 +19,6 @@ impl std::default::Default for Settings {
         Settings {
             twitter_username: String::new(),
             total_entries: 0,
-            ban_unknown_methods: true,
             auto_follow_twitter: false,
             auto_retweet: false,
             auto_tweet: false,

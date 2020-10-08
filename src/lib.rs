@@ -11,12 +11,13 @@ mod messages;
 mod request;
 mod settings;
 mod yew_app;
+mod classifier;
 use yew::prelude::App;
 use yew_app::*;
 
 #[wasm_bindgen(start)]
 pub async fn main() {
-    log!("Hello World!");
+    log!("Bot working!");
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 
     let window = window().expect("No window");
