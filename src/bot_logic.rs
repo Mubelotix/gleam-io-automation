@@ -340,8 +340,7 @@ pub async fn run(
                         true,
                     )
                 } else {
-                    elog!("Answers not given {:?}", entry_type);
-                    warn("Answer are supposed to be given".to_string());
+                    log!("WARNING: Answers not given {:?}", entry_type);
                     (
                         Value::String(settings.borrow().text_input_sentence.clone()),
                         true,

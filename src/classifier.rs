@@ -249,7 +249,7 @@ mod list {
         [
             IsNotEmpty,
             Lacks,
-            Lacks,
+            Or(&Lacks, &IsNotEmpty),
             IsNotEmpty,
             Lacks,
             Lacks,
@@ -409,11 +409,11 @@ mod list {
         IsEmpty,
         Lacks,
         [
-            IsNotEmpty,
+            IsUrl,
             Is("Complete"),
             Lacks,
-            Lacks,
-            Lacks,
+            Or(&Lacks, &IsNotEmpty),
+            Or(&Lacks, &IsNumber),
             Lacks,
             Lacks,
             Lacks,

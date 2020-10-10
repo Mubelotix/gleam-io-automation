@@ -118,7 +118,7 @@ impl Component for Model {
                         </p>
                         <br/>
                         <div class=if self.progress_state != BotState::Waiting {"progress_bar in_progress"}else{"progress_bar"} >
-                            <div style=format!("width: {}%", self.progress)>
+                            <div class="circuit" style=format!("width: {}%", self.progress)>
                             </div>
                         </div>
                         <br/>
