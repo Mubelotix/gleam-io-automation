@@ -219,7 +219,7 @@ pub async fn run(
 
         // Generate a the root of a validation request
         let details: (Value, bool, bool) = match entry_type.get_request_type() {
-            _ if entry.entry_type == "twitter_follow" => {
+            RequestType::TwitterFollow => {
                 if settings.borrow().auto_follow_twitter {
                     let username = match &entry.config1 {
                         Some(username) => username,
@@ -250,7 +250,7 @@ pub async fn run(
                     continue;
                 }
             }
-            _ if entry.entry_type == "twitter_retweet" => {
+            RequestType::TwitterRetweet => {
                 if settings.borrow().auto_retweet {
                     let url = match &entry.config1 {
                         Some(url) => url,
@@ -270,7 +270,7 @@ pub async fn run(
     
                     let url = format!(
                         "https://twitter.com/intent/retweet?tweet_id={}&gleambot=true",
-                        id
+                        get_all_before(id, "?")
                     );
     
                     if let Err(e) = window.open_with_url(&url) {
@@ -288,7 +288,7 @@ pub async fn run(
                     continue;
                 }
             }
-            _ if entry.entry_type == "twitter_tweet" => {
+            RequestType::TwitterTweet => {
                 if settings.borrow().auto_tweet {
                     let text = match &entry.config1 {
                         Some(text) => text,
@@ -299,8 +299,9 @@ pub async fn run(
                     };
                     
                     let url = format!(
-                        "https://twitter.com/intent/tweet?text={}&gleambot=true",
-                        text.replace("&#39;", "'")
+                        "https://twitter.com/intent/tweet?text={} {}&gleambot=true",
+                        text.replace("&#39;", "'"),
+                        href
                     );
                     
                     if let Err(e) = window.open_with_url(&url) {

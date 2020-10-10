@@ -483,7 +483,7 @@ mod list {
         [
             IsUrl,
             IsNotEmpty,
-            Is("post"),
+            IsIn(&["post", "photo"]),
             IsNumber,
             Lacks,
             Lacks,
@@ -636,6 +636,60 @@ mod list {
             Lacks,
         ],
     );
+
+    pub const TWITTER_RETWEET: Verifyer = Verifyer::new(
+        "twitter_retweet",
+        Lacks,
+        IsEmpty,
+        Lacks,
+        [
+            IsUrl,
+            IsNotEmpty,
+            IsNumber,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+        ],
+    );
+
+    pub const TWITTER_TWEET: Verifyer = Verifyer::new(
+        "twitter_tweet",
+        Lacks,
+        IsEmpty,
+        Lacks,
+        [
+            IsNotEmpty,
+            IsNumber,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+        ],
+    );
+
+    pub const TWITTER_FOLLOW: Verifyer = Verifyer::new(
+        "twitter_follow",
+        Lacks,
+        IsEmpty,
+        Lacks,
+        [
+            IsNotEmpty,
+            IsNumber,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+            Lacks,
+        ],
+    );
 }
 
 #[derive(Debug, PartialEq)]
@@ -661,6 +715,9 @@ pub enum EntryType {
     PinterestVisitComplete,
     PinterestVisitFollow,
     TwitterEnter,
+    TwitterRetweet,
+    TwitterTweet,
+    TwitterFollow,
     YoutubeVisitChannel,
     YoutubeVisitChannelWithQuestion,
     YoutubeEnter,
@@ -671,6 +728,7 @@ pub enum EntryType {
 impl EntryType {
     pub fn get_request_type(&self) -> RequestType {
         use EntryType::*;
+        use EntryType::{TwitterRetweet, TwitterTweet, TwitterFollow};
         use RequestType::*;
         use serde_json::Value::*;
 
@@ -696,6 +754,9 @@ impl EntryType {
             PinterestVisitComplete => Simple(String("V".to_string()), false, false),
             PinterestVisitFollow => Simple(String("V".to_string()), true, false),
             TwitterEnter => Enter("twitter"),
+            TwitterRetweet => RequestType::TwitterRetweet,
+            TwitterTweet => RequestType::TwitterTweet,
+            TwitterFollow => RequestType::TwitterFollow,
             YoutubeVisitChannel => Simple(String("V".to_string()), false, false),
             YoutubeVisitChannelWithQuestion => Answer(",", 6),
             YoutubeEnter => Enter("youtube"),
@@ -710,37 +771,45 @@ pub enum RequestType {
     TextInput,
     Answer(&'static str, u8),
     Simple(serde_json::Value, bool, bool),
+    TwitterRetweet,
+    TwitterTweet,
+    TwitterFollow,
 }
 
 #[allow(dead_code)]
 pub fn classify(entry: &EntryMethod) -> Option<EntryType> {
+    use EntryType::*;
+
     match entry {
-        entry if PINTEREST_VISIT_COMPLETE.matches(&entry).is_ok() => Some(EntryType::PinterestVisitComplete),
-        entry if PINTEREST_VISIT_FOLLOW.matches(&entry).is_ok() => Some(EntryType::PinterestVisitFollow),
-        entry if INSTAGRAM_ENTER.matches(&entry).is_ok() => Some(EntryType::InstagramEnter),
-        entry if INSTAGRAM_VIEW_POST.matches(&entry).is_ok() => Some(EntryType::InstagramViewPost),
-        entry if INSTAGRAM_VISIT_PROFILE.matches(&entry).is_ok() => Some(EntryType::InstagramVisitProfile),
-        entry if INSTAGRAM_VISIT_PROFILE_WITH_QUESTION.matches(&entry).is_ok() => Some(EntryType::InstagramVisitProfileWithQuestion),
-        entry if CUSTOM_ACTION_QUESTION.matches(&entry).is_ok() => Some(EntryType::CustomActionQuestion),
-        entry if CUSTOM_ACTION_ASK_QUESTION.matches(&entry).is_ok() => Some(EntryType::CustomActionAskQuestion),
-        entry if CUSTOM_ACTION_VISIT_QUESTION.matches(&entry).is_ok() => Some(EntryType::CustomActionVisitQuestion),
-        entry if CUSTOM_ACTION_CHOOSE_OPTION.matches(&entry).is_ok() => Some(EntryType::CustomActionChooseOption),
-        entry if CUSTOM_ACTION_BLOG_COMMENT.matches(&entry).is_ok() => Some(EntryType::CustomActionBlogComment),
-        entry if CUSTOM_ACTION_BASIC.matches(&entry).is_ok() => Some(EntryType::CustomActionBasic),
-        entry if CUSTOM_ACTION_VISIT_AUTO.matches(&entry).is_ok() => Some(EntryType::CustomActionVisitAuto),
-        entry if CUSTOM_ACTION_BONUS.matches(&entry).is_ok() => Some(EntryType::CustomActionBonus),
-        entry if EMAIL_SUBSCRIBE.matches(&entry).is_ok() => Some(EntryType::EmailSubscribe),
-        entry if FACEBOOK_ENTER.matches(&entry).is_ok() => Some(EntryType::FacebookEnter),
-        entry if FACEBOOK_VISIT_COMPLETE.matches(&entry).is_ok() => Some(EntryType::FacebookVisitComplete),
-        entry if FACEBOOK_VISIT_LIKE_WITH_QUESTION.matches(&entry).is_ok() => Some(EntryType::FacebookVisitWithQuestion),
-        entry if FACEBOOK_VISIT_LIKE.matches(&entry).is_ok() => Some(EntryType::FacebookVisitLike),
-        entry if FACEBOOK_VIEW_POST.matches(&entry).is_ok() => Some(EntryType::FacebookViewPost),
-        entry if TWITTER_ENTER.matches(&entry).is_ok() => Some(EntryType::TwitterEnter),
-        entry if YOUTUBE_VISIT_CHANNEL.matches(&entry).is_ok() => Some(EntryType::YoutubeVisitChannel),
-        entry if YOUTUBE_VISIT_CHANNEL_WITH_QUESTION.matches(&entry).is_ok() => Some(EntryType::YoutubeVisitChannelWithQuestion),
-        entry if YOUTUBE_ENTER.matches(&entry).is_ok() => Some(EntryType::YoutubeEnter),
-        entry if TWITCHTV_ENTER.matches(&entry).is_ok() => Some(EntryType::TwitchEnter),
-        entry if TWITCHTV_FOLLOW.matches(&entry).is_ok() => Some(EntryType::TwitchFollow),
+        entry if PINTEREST_VISIT_COMPLETE.matches(&entry).is_ok() => Some(PinterestVisitComplete),
+        entry if PINTEREST_VISIT_FOLLOW.matches(&entry).is_ok() => Some(PinterestVisitFollow),
+        entry if INSTAGRAM_ENTER.matches(&entry).is_ok() => Some(InstagramEnter),
+        entry if INSTAGRAM_VIEW_POST.matches(&entry).is_ok() => Some(InstagramViewPost),
+        entry if INSTAGRAM_VISIT_PROFILE.matches(&entry).is_ok() => Some(InstagramVisitProfile),
+        entry if INSTAGRAM_VISIT_PROFILE_WITH_QUESTION.matches(&entry).is_ok() => Some(InstagramVisitProfileWithQuestion),
+        entry if CUSTOM_ACTION_QUESTION.matches(&entry).is_ok() => Some(CustomActionQuestion),
+        entry if CUSTOM_ACTION_ASK_QUESTION.matches(&entry).is_ok() => Some(CustomActionAskQuestion),
+        entry if CUSTOM_ACTION_VISIT_QUESTION.matches(&entry).is_ok() => Some(CustomActionVisitQuestion),
+        entry if CUSTOM_ACTION_CHOOSE_OPTION.matches(&entry).is_ok() => Some(CustomActionChooseOption),
+        entry if CUSTOM_ACTION_BLOG_COMMENT.matches(&entry).is_ok() => Some(CustomActionBlogComment),
+        entry if CUSTOM_ACTION_BASIC.matches(&entry).is_ok() => Some(CustomActionBasic),
+        entry if CUSTOM_ACTION_VISIT_AUTO.matches(&entry).is_ok() => Some(CustomActionVisitAuto),
+        entry if CUSTOM_ACTION_BONUS.matches(&entry).is_ok() => Some(CustomActionBonus),
+        entry if EMAIL_SUBSCRIBE.matches(&entry).is_ok() => Some(EmailSubscribe),
+        entry if FACEBOOK_ENTER.matches(&entry).is_ok() => Some(FacebookEnter),
+        entry if FACEBOOK_VISIT_COMPLETE.matches(&entry).is_ok() => Some(FacebookVisitComplete),
+        entry if FACEBOOK_VISIT_LIKE_WITH_QUESTION.matches(&entry).is_ok() => Some(FacebookVisitWithQuestion),
+        entry if FACEBOOK_VISIT_LIKE.matches(&entry).is_ok() => Some(FacebookVisitLike),
+        entry if FACEBOOK_VIEW_POST.matches(&entry).is_ok() => Some(FacebookViewPost),
+        entry if TWITTER_ENTER.matches(&entry).is_ok() => Some(TwitterEnter),
+        entry if TWITTER_RETWEET.matches(&entry).is_ok() => Some(TwitterRetweet),
+        entry if TWITTER_TWEET.matches(&entry).is_ok() => Some(TwitterTweet),
+        entry if TWITTER_FOLLOW.matches(&entry).is_ok() => Some(TwitterFollow),
+        entry if YOUTUBE_VISIT_CHANNEL.matches(&entry).is_ok() => Some(YoutubeVisitChannel),
+        entry if YOUTUBE_VISIT_CHANNEL_WITH_QUESTION.matches(&entry).is_ok() => Some(YoutubeVisitChannelWithQuestion),
+        entry if YOUTUBE_ENTER.matches(&entry).is_ok() => Some(YoutubeEnter),
+        entry if TWITCHTV_ENTER.matches(&entry).is_ok() => Some(TwitchEnter),
+        entry if TWITCHTV_FOLLOW.matches(&entry).is_ok() => Some(TwitchFollow),
         _ => None
     }
 }

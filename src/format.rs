@@ -83,10 +83,10 @@ pub struct EntryMethod {
     pub must_verify: bool,
     pub requires_authentication: bool,
     pub can_authenticate: bool,
-    pub requires_details: bool, // todo use this
+    pub requires_details: bool,
     pub display_information: Option<bool>,
     pub auth_for_details: bool,
-    pub api_fallback: Option<Value>,
+    pub api_fallback: Option<bool>,
     pub auto_expandable: Option<bool>,
     pub expandable: bool,
     pub double_opt_in: bool,
