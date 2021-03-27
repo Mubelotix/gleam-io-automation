@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+Cargo.lock
+giveaways.csv
+saved.json
+giveaways.json
+config.toml
+backups/*
+new_giveaways.json
