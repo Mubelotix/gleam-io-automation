@@ -1,0 +1,42 @@
+{
+    "name" : "Gleam.io bot",
+    "version" : "3.3",
+    "description" : "Automated gleam.io giveaway entering.",
+    "permissions": [
+        "https://twitter.com/intent/*?*&gleambot=true",
+        "https://gleam.io/*"
+    ],
+
+    "icons": {
+        "48": "icons/48.png",
+        "72": "icons/72.png",
+        "96": "icons/96.png",
+        "144": "icons/144.png",
+        "192": "icons/192.png"
+    },
+    "content_scripts": [
+        {
+            "matches": ["https://gleam.io/*"],
+            "all_frames": true,
+            "js": ["inject_module.js"]
+        },
+        {
+            "matches": ["https://twitter.com/intent/follow?*&gleambot=true"],
+            "js": ["twitter/follow.js"]
+        },
+        {
+            "matches": ["https://twitter.com/intent/retweet?*&gleambot=true"],
+            "js": ["twitter/retweet.js"]
+        },
+        {
+            "matches": ["https://twitter.com/intent/tweet?*&gleambot=true"],
+            "js": ["twitter/tweet.js"]
+        }
+    ],
+    "web_accessible_resources": [
+        "gleam_extension.js",
+        "run_wasm.js",
+        "gleam_extension_bg.wasm"
+    ],
+    "manifest_version": 2
+}
